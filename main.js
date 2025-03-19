@@ -27,6 +27,7 @@ let marqueeEndY = 0;
 let shiftPressed = false;
 let mKeyPressed = false;
 let xKeyPressed = false;
+let vKeyPressed = false;
 
 // Matter.js variables
 let engine;
@@ -40,6 +41,8 @@ let isRandomColor = true; // Flag to toggle between random and chosen color
 let currentPickedColor = [255, 100, 100]; // Default custom color (will be initialized properly in setup)
 
 const toolbar = document.getElementById('toolbar');
+
+let backgroundBuffer; // Add this at the top with other global variables
 
 function calculateBaseSize() {
     // Calculate base size relative to screen dimensions
@@ -90,17 +93,86 @@ function setup() {
     setupControls();
     setupPhysics();
     initializeUI();
+    
+    // Create and cache the background
+    createBackgroundBuffer();
 }
 
-// Utility function to detect mobile devices
-function isMobileDevice() {
-    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768;
+function createBackgroundBuffer() {
+    // Create a buffer for the background
+    backgroundBuffer = createGraphics(windowWidth, windowHeight);
+    backgroundBuffer.background(0);
+    
+    // Create gradient background
+    let c1 = color(255, 200, 100);
+    let c2 = color(200, 100, 255);
+    
+    for(let y = 0; y < height; y++){
+        let inter = map(y, 0, height, 0, 1);
+        let c = lerpColor(c1, c2, inter);
+        backgroundBuffer.stroke(c);
+        backgroundBuffer.line(0, y, width, y);
+    }
 }
 
 function windowResized() {
     resizeCanvas(windowWidth, windowHeight);
     baseSize = calculateBaseSize();
     createBoundaries();
+    createBackgroundBuffer(); // Recreate background buffer on resize
+}
+
+function draw() {
+    updateButtonStates();
+    // Update time
+    time += deltaTime * 0.001;
+    
+    // Draw cached background
+    image(backgroundBuffer, 0, 0);
+    
+    // Update and draw particles
+    for (let i = particles.length - 1; i >= 0; i--) {
+        const particle = particles[i];
+        particle.update();
+        particle.display();
+        
+        // Apply pulse effect if it exists
+        if (particle.pulseEffect && particle.pulseEffect > 1) {
+            particle.pulseEffect -= 0.05;
+            if (particle.pulseEffect <= 1) {
+                particle.pulseEffect = null;
+            }
+        }
+    }
+    
+    // Draw marquee selection if active
+    if (isMarqueeSelecting) {
+        stroke(255, 255, 255, 100);
+        strokeWeight(2);
+        fill(255, 255, 255, 30);
+        rect(marqueeStartX, marqueeStartY, marqueeEndX - marqueeStartX, marqueeEndY - marqueeStartY);
+    }
+    
+    // Update particle count display less frequently
+    if (frameCount % 10 === 0) { // Only update every 10 frames
+        const particleCountElement = document.getElementById('particleCount');
+        if (particleCountElement) {
+            particleCountElement.textContent = particles.length;
+        }
+    }
+    
+    // Hide instructions if particle count is greater than 0
+    if (particles.length > 0) {
+        const instructions = document.getElementById('instructions');
+        if (instructions && !instructions.classList.contains('hidden')) {
+            instructions.classList.add('hidden');
+        }
+    }
+}
+
+// Utility function to detect mobile devices
+function isMobileDevice() {
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768;
 }
 
 // Add this function to handle the background gradient
@@ -120,14 +192,27 @@ function setGradientBackground() {
 class PhysicsParticle {
     constructor(x, y, color, shape) {
         this.size = random(baseSize * 0.75, baseSize * 1.5);
-        // switch statement to change particle shape
+        this.color = color;
+        this.shape = currentShape;
+        this.isHovered = false;
+        this.isSelected = false;
+        this.isLocked = false;
+        this.isAcid = false;
+        this.pulseEffect = null;
+        this.alpha = 255;
+        this.acidStrength = 0.1;
+        this.lastAcidEffect = 0;
+        this.originalSize = this.size;
+        
+        // Create body based on shape
         switch (shape) {
             case 'circle':
                 this.body = Matter.Bodies.circle(x, y, this.size/2 + padding, {
                     friction: 0.3,
                     restitution: 0.4,
                     angle: random(TWO_PI),
-                    density: 0.001
+                    density: 0.001,
+                    label: 'particle'
                 });
                 break;
             case 'square':
@@ -135,7 +220,8 @@ class PhysicsParticle {
                     friction: 0.3,
                     restitution: 0.4,
                     angle: random(TWO_PI),
-                    density: 0.001
+                    density: 0.001,
+                    label: 'particle'
                 });
                 break;
             case 'triangle':
@@ -143,7 +229,8 @@ class PhysicsParticle {
                     friction: 0.3,
                     restitution: 0.4,
                     angle: random(TWO_PI),
-                    density: 0.001
+                    density: 0.001,
+                    label: 'particle'
                 });
                 break;
             default:
@@ -151,39 +238,85 @@ class PhysicsParticle {
                     friction: 0.3,
                     restitution: 0.4,
                     angle: random(TWO_PI),
-                    density: 0.001
+                    density: 0.001,
+                    label: 'particle'
                 });
-                break;
         }
-        // Add some initial velocity
+        
+        // Add initial velocity
         Matter.Body.setVelocity(this.body, { 
             x: random(-5, 5),
             y: random(-5, 0)
         });
         
         Matter.World.add(world, this.body);
-        this.alpha = 255;
-        this.color = color;
-        this.shape = currentShape;
-        this.isHovered = false;
-        this.isSelected = false;
-        this.isLocked = false;
-        this.pulseEffect = null;
         previousColor = this.color;
     }
 
     update() {
-        // Add any per-frame physics updates or logic here
-        // For now, we'll rely on Matter.js for most physics
+        // Only update if not locked
+        if (!this.isLocked) {
+            // Add acid effect logic
+            if (this.isAcid) {
+                const currentTime = millis();
+                // Only apply acid effect every 100ms to prevent too rapid shrinking
+                if (currentTime - this.lastAcidEffect > 100) {
+                    // Check for collisions with other particles
+                    for (let particle of particles) {
+                        if (particle !== this && !particle.isAcid && !particle.isLocked) {
+                            const distance = dist(
+                                this.body.position.x, this.body.position.y,
+                                particle.body.position.x, particle.body.position.y
+                            );
+                            
+                            // If particles are touching
+                            if (distance < (this.size + particle.size) / 2) {
+                                // Reduce the target particle's size
+                                const newSize = particle.size * (1 - this.acidStrength);
+                                
+                                // If particle is too small, remove it
+                                if (newSize < 5) {
+                                    particle.remove();
+                                    const index = particles.indexOf(particle);
+                                    if (index !== -1) {
+                                        particles.splice(index, 1);
+                                    }
+                                    
+                                    // Also remove from selected and locked arrays if needed
+                                    const selectedIndex = selectedParticles.indexOf(particle);
+                                    if (selectedIndex !== -1) {
+                                        selectedParticles.splice(selectedIndex, 1);
+                                    }
+                                    
+                                    const lockedIndex = lockedParticles.indexOf(particle);
+                                    if (lockedIndex !== -1) {
+                                        lockedParticles.splice(lockedIndex, 1);
+                                    }
+                                    
+                                    // Update button states
+                                    updateButtonStates();
+                                } else {
+                                    // Calculate the scale factor based on the new size relative to original size
+                                    const scale = newSize / particle.originalSize;
+                                    
+                                    // Update the particle's physics body size
+                                    Matter.Body.scale(particle.body, scale, scale);
+                                    
+                                    // Update the particle's visual size
+                                    particle.size = newSize;
+                                }
+                            }
+                        }
+                    }
+                    this.lastAcidEffect = currentTime;
+                }
+            }
+        }
     }
 
     display() {
-        this.draw();
-    }
-
-    draw() {
-        let pos = this.body.position;
-        let angle = this.body.angle;
+        const pos = this.body.position;
+        const angle = this.body.angle;
         
         push();
         translate(pos.x, pos.y);
@@ -224,9 +357,18 @@ class PhysicsParticle {
             // Main particle fill
             fill(this.color[0], this.color[1], this.color[2], 120);
         } else {
-            // Normal or locked state (no glow)
-            if (this.isLocked) {
-                // Locked particles are paler in color (higher alpha/brightness)
+            // Normal, locked, or acid state
+            if (this.isAcid) {
+                // Acid particles have a green glow and pulsing effect
+                fill(0, 255, 0, 100);
+                stroke(0, 255, 0, 150);
+                strokeWeight(2);
+                circle(0, 0, this.size * 1.2);
+                
+                // Main acid particle color (bright green)
+                fill(0, 255, 0, 200);
+            } else if (this.isLocked) {
+                // Locked particles are paler in color
                 fill(
                     this.color[0] + (255 - this.color[0]) * 0.4, 
                     this.color[1] + (255 - this.color[1]) * 0.4, 
@@ -234,12 +376,11 @@ class PhysicsParticle {
                     this.alpha
                 );
             } else {
-                // Normal color
                 fill(this.color[0], this.color[1], this.color[2], this.alpha);
             }
         }
         
-        // switch statement to change particle shape
+        // Draw the particle shape
         switch (this.shape) {
             case 'circle':
                 circle(0, 0, this.size);
@@ -259,51 +400,6 @@ class PhysicsParticle {
 
     remove() {
         Matter.World.remove(world, this.body);
-    }
-}
-
-function draw() {
-    // Update time
-    time += deltaTime * 0.001;
-    
-    // Set background gradient
-    setGradientBackground();
-    
-    // Update and draw particles
-    for (let i = particles.length - 1; i >= 0; i--) {
-        const particle = particles[i];
-        particle.update();
-        particle.display();
-        
-        // Apply pulse effect if it exists
-        if (particle.pulseEffect && particle.pulseEffect > 1) {
-            particle.pulseEffect -= 0.05;
-            if (particle.pulseEffect <= 1) {
-                particle.pulseEffect = null;
-            }
-        }
-    }
-    
-    // Draw marquee selection if active
-    if (isMarqueeSelecting) {
-        stroke(255, 255, 255, 100);
-        strokeWeight(2);
-        fill(255, 255, 255, 30);
-        rect(marqueeStartX, marqueeStartY, marqueeEndX - marqueeStartX, marqueeEndY - marqueeStartY);
-    }
-    
-    // Update particle count display
-    const particleCountElement = document.getElementById('particleCount');
-    if (particleCountElement) {
-        particleCountElement.textContent = particles.length;
-    }
-    
-    // Hide instructions if particle count is greater than 0
-    if (particles.length > 0) {
-        const instructions = document.getElementById('instructions');
-        if (instructions && !instructions.classList.contains('hidden')) {
-            instructions.classList.add('hidden');
-        }
     }
 }
 
@@ -376,7 +472,13 @@ function mousePressed() {
     // detect if mouse click is on a particle
     for (let particle of particles) {
         if (dist(mouseX, mouseY, particle.body.position.x, particle.body.position.y) < particle.size/2) {
-            if (xKeyPressed) {
+            if (vKeyPressed) {
+                // Convert particle to acid
+                particle.isAcid = true;
+                particle.color = [0, 255, 0]; // Bright green color
+                clicked = true;
+                break;
+            } else if (xKeyPressed) {
                 // Split the particle if M key is pressed
                 splitParticle(particle);
                 clicked = true;
@@ -638,6 +740,11 @@ function keyPressed() {
     if (key === 'x' || key === 'X') {
         xKeyPressed = true;
     }
+
+    // Track V key state
+    if (key === 'v' || key === 'V') {
+        vKeyPressed = true;
+    }
     
     if (key === 'Backspace') {
         if (selectedParticles.length > 0) {
@@ -716,6 +823,11 @@ function keyReleased() {
 
     if (key === 'x' || key === 'X') {
         xKeyPressed = false;
+    }
+
+    // Track V key state
+    if (key === 'v' || key === 'V') {
+        vKeyPressed = false;
     }
 
     return false;
@@ -812,58 +924,53 @@ function mouseDragged() {
     if (isMarqueeSelecting) {
         marqueeEndX = mouseX;
         marqueeEndY = mouseY;
+        
+        // Calculate the marquee box coordinates
+        let x1 = min(marqueeStartX, marqueeEndX);
+        let y1 = min(marqueeStartY, marqueeEndY);
+        let x2 = max(marqueeStartX, marqueeEndX);
+        let y2 = max(marqueeStartY, marqueeEndY);
+        
+        // Minimum size check to avoid accidental tiny selections
+        if (abs(x2 - x1) < 10 || abs(y2 - y1) < 10) {
+            return false;
+        }
+        
+        // Select all particles inside the marquee
+        for (let particle of particles) {
+            const pos = particle.body.position;
+            
+            // Check if particle position is inside the marquee box
+            if (pos.x >= x1 && pos.x <= x2 && pos.y >= y1 && pos.y <= y2) {
+                // Only add if not already selected
+                if (selectedParticles.indexOf(particle) === -1) {
+                    selectedParticles.push(particle);
+                    particle.isSelected = true;
+                }
+            } else {
+                // Deselect particles outside the marquee
+                const index = selectedParticles.indexOf(particle);
+                if (index !== -1) {
+                    selectedParticles.splice(index, 1);
+                    particle.isSelected = false;
+                }
+            }
+        }
+        
+        // Update button states based on current selection
+        updateButtonStates();
         return false;
     }
     return true;
 }
 
 function mouseReleased() {
-    // Finalize marquee selection if active
+    // Just clear the marquee selection state
     if (isMarqueeSelecting) {
-        finalizeMarqueeSelection();
         isMarqueeSelecting = false;
         return false;
     }
     return true;
-}
-
-function finalizeMarqueeSelection() {
-    // Calculate the marquee box coordinates
-    let x1 = min(marqueeStartX, marqueeEndX);
-    let y1 = min(marqueeStartY, marqueeEndY);
-    let x2 = max(marqueeStartX, marqueeEndX);
-    let y2 = max(marqueeStartY, marqueeEndY);
-    
-    // Minimum size check to avoid accidental tiny selections
-    if (abs(x2 - x1) < 10 || abs(y2 - y1) < 10) {
-        // Reset hover states for particles
-        for (let particle of particles) {
-            if (!particle.isSelected) {
-                particle.isHovered = false;
-            }
-        }
-        return;
-    }
-    
-    // Always keep existing selections (requirement #1)
-    // No need to clear previous selections anymore
-    
-    // Select all particles inside the marquee
-    for (let particle of particles) {
-        const pos = particle.body.position;
-        
-        // Check if particle position is inside the marquee box
-        if (pos.x >= x1 && pos.x <= x2 && pos.y >= y1 && pos.y <= y2) {
-            // Only add if not already selected
-            if (selectedParticles.indexOf(particle) === -1) {
-                selectedParticles.push(particle);
-                particle.isSelected = true;
-            }
-        }
-        
-        // Clear hover state as we've now completed selection
-        particle.isHovered = false;
-    }
 }
 
 // Helper function to convert RGB to Hex
@@ -951,6 +1058,7 @@ function setupControls() {
                 particles.splice(particles.indexOf(particle), 1);
             }
             selectedParticles = [];
+            updateButtonStates();
         }
     });
     
@@ -962,6 +1070,7 @@ function setupControls() {
         particles = [];
         lockedParticles = [];
         selectedParticles = [];
+        updateButtonStates();
     });
 
     lockBtn.addEventListener('click', () => {
@@ -999,7 +1108,10 @@ function setupControls() {
             particle.isHovered = false;
         }
         selectedParticles = [];
+        updateButtonStates();
     });
+
+    // Set up help button
     helpBtn.addEventListener('click', () => {
         // Create modal container if it doesn't exist
         let helpModal = document.getElementById('helpModal');
@@ -1068,7 +1180,7 @@ function setupControls() {
                 </tr>
                 <tr>
                     <td><span class="key">Backspace</span></td>
-                    <td>Delete selected particles (or all if none selected)</td>
+                    <td>Delete selected particles (or chunks if none selected)</td>
                 </tr>
                 <tr>
                     <td><span class="key">C</span></td>
@@ -1152,132 +1264,6 @@ function setupControls() {
             event.stopPropagation();
         });
     });
-}
-
-function splitParticle(particle) {
-    // Get original particle properties
-    const originalSize = particle.size;
-    const pos = particle.body.position;
-    const originalColor = particle.color;
-    const originalShape = particle.shape;
-    
-    // Remove the original particle
-    particle.remove();
-    const index = particles.indexOf(particle);
-    if (index !== -1) {
-        particles.splice(index, 1);
-    }
-    
-    // Also remove from selected and locked arrays if needed
-    const selectedIndex = selectedParticles.indexOf(particle);
-    if (selectedIndex !== -1) {
-        selectedParticles.splice(selectedIndex, 1);
-    }
-    
-    const lockedIndex = lockedParticles.indexOf(particle);
-    if (lockedIndex !== -1) {
-        lockedParticles.splice(lockedIndex, 1);
-    }
-    
-    // Number of smaller particles to create
-    const numFragments = floor(random(4, 8));
-    
-    // Size reduction factor - particles will be 60% of original size
-    const sizeReduction = 0.6;
-    
-    // Store the original base size
-    const originalBaseSize = baseSize;
-    
-    // Temporarily reduce base size for creating smaller particles
-    // We want new particles that are sizeReduction (e.g. 60%) of the original's size
-    // PhysicsParticle constructor uses random(baseSize * 0.75, baseSize * 1.5)
-    // So we adjust baseSize so the middle of this range (baseSize * 1.125) is sizeReduction * originalSize
-    baseSize = originalSize * sizeReduction / 1.125;
-    
-    // Create smaller particles
-    for (let i = 0; i < numFragments; i++) {
-        // Create a new particle with temporarily reduced baseSize
-        const newParticle = new PhysicsParticle(pos.x, pos.y, originalColor, originalShape);
-        
-        // Apply random velocity for explosion effect
-        const angle = random(TWO_PI);
-        const force = random(2, 5);
-        Matter.Body.setVelocity(newParticle.body, {
-            x: cos(angle) * force,
-            y: sin(angle) * force
-        });
-        
-        // Add to particles array
-        particles.push(newParticle);
-    }
-    
-    // Restore original base size
-    baseSize = originalBaseSize;
-}
-
-function initializeUI() {
-    // Initialize color picker
-    colorPickerInput = document.getElementById('colorPickerInput');
-    colorPickerInput.addEventListener('input', handleColorPickerChange);
-    colorPickerInput.addEventListener('change', handleColorPickerChange);
-
-    // Initialize toolbar buttons with both click and touch events
-    const currentColorBtn = document.getElementById('currentColor');
-    const shapeSelectBtn = document.getElementById('shapeSelectBtn');
-    const cutBtn = document.getElementById('cutBtn');
-    const lockBtn = document.getElementById('lockBtn');
-    const clearBtn = document.getElementById('clearBtn');
-    const helpBtn = document.getElementById('helpBtn');
-    
-    // Add click and touch events for all buttons
-    currentColorBtn.addEventListener('click', toggleColorPicker);
-    currentColorBtn.addEventListener('touchstart', function(e) {
-        e.preventDefault();
-        toggleColorPicker();
-    });
-    
-    shapeSelectBtn.addEventListener('click', toggleShapeSelect);
-    shapeSelectBtn.addEventListener('touchstart', function(e) {
-        e.preventDefault();
-        toggleShapeSelect();
-    });
-    
-    cutBtn.addEventListener('click', toggleCutMode);
-    cutBtn.addEventListener('touchstart', function(e) {
-        e.preventDefault();
-        toggleCutMode();
-    });
-    
-    lockBtn.addEventListener('click', toggleLockMode);
-    lockBtn.addEventListener('touchstart', function(e) {
-        e.preventDefault();
-        toggleLockMode();
-    });
-    
-    clearBtn.addEventListener('click', clearCanvas);
-    clearBtn.addEventListener('touchstart', function(e) {
-        e.preventDefault();
-        clearCanvas();
-    });
-    
-    helpBtn.addEventListener('click', showHelp);
-    helpBtn.addEventListener('touchstart', function(e) {
-        e.preventDefault();
-        showHelp();
-    });
-
-    // Initialize help modal close button
-    const closeHelpBtn = document.getElementById('closeHelpBtn');
-    if (closeHelpBtn) {
-        closeHelpBtn.addEventListener('click', hideHelp);
-        closeHelpBtn.addEventListener('touchstart', function(e) {
-            e.preventDefault();
-            hideHelp();
-        });
-    }
-
-    // Update button states
-    updateButtonStates();
 }
 
 function toggleColorPicker() {
@@ -1373,89 +1359,52 @@ function clearCanvas() {
     updateButtonStates();
 }
 
-function showHelp() {
-    // Display help modal
-    const modal = document.createElement('div');
-    modal.id = 'helpModal';
-    modal.className = 'help-modal';
-    
-    modal.innerHTML = `
-        <div class="help-content">
-            <p>Controls</p>
-            <table>
-                <tr>
-                    <td>Click / Tap</td>
-                    <td>Create bubbles</td>
-                </tr>
-                <tr>
-                    <td>Click bubble</td>
-                    <td>Select/deselect bubble</td>
-                </tr>
-                <tr>
-                    <td>Long press</td>
-                    <td>Select bubble</td>
-                </tr>
-                <tr>
-                    <td>Two fingers</td>
-                    <td>Reset all bubbles</td>
-                </tr>
-                <tr>
-                    <td>Three fingers</td>
-                    <td>Clear unlocked bubbles</td>
-                </tr>
-            </table>
-            
-            <p>Keyboard Shortcuts</p>
-            <table>
-                <tr>
-                    <td><span class="key">R</span></td>
-                    <td>Reset all bubbles</td>
-                </tr>
-                <tr>
-                    <td><span class="key">C</span></td>
-                    <td>Change color of selected bubbles</td>
-                </tr>
-                <tr>
-                    <td><span class="key">Delete</span> / <span class="key">Backspace</span></td>
-                    <td>Remove selected bubbles</td>
-                </tr>
-                <tr>
-                    <td><span class="key">L</span></td>
-                    <td>Lock/unlock selected bubbles</td>
-                </tr>
-                <tr>
-                    <td><span class="key">S</span></td>
-                    <td>Change shape of newly created bubbles</td>
-                </tr>
-                <tr>
-                    <td><span class="key">A</span></td>
-                    <td>Select all bubbles</td>
-                </tr>
-                <tr>
-                    <td><span class="key">X</span></td>
-                    <td>Clear all bubbles</td>
-                </tr>
-            </table>
-            
-            <div class="tip">
-                Pro tip: Lock bubbles in place to create interesting structures!
-            </div>
-            
-            <button id="closeHelpBtn"><span class="material-symbols-outlined">close</span>Close</button>
-        </div>
-    `;
-    
-    document.body.appendChild(modal);
-    
-    // Add event listener to close button
-    document.getElementById('closeHelpBtn').addEventListener('click', hideHelp);
-}
+function initializeUI() {
+    // Initialize color picker
+    colorPickerInput = document.getElementById('colorPickerInput');
+    colorPickerInput.addEventListener('input', handleColorPickerChange);
+    colorPickerInput.addEventListener('change', handleColorPickerChange);
 
-function hideHelp() {
-    const helpModal = document.getElementById('helpModal');
-    if (helpModal) {
-        helpModal.style.display = 'none';
-    }
+    // Initialize toolbar buttons with both click and touch events
+    const currentColorBtn = document.getElementById('currentColor');
+    const shapeSelectBtn = document.getElementById('shapeSelectBtn');
+    const cutBtn = document.getElementById('cutBtn');
+    const lockBtn = document.getElementById('lockBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    
+    // Add click and touch events for all buttons
+    currentColorBtn.addEventListener('click', toggleColorPicker);
+    currentColorBtn.addEventListener('touchstart', function(e) {
+        e.preventDefault();
+        toggleColorPicker();
+    });
+    
+    shapeSelectBtn.addEventListener('click', toggleShapeSelect);
+    shapeSelectBtn.addEventListener('touchstart', function(e) {
+        e.preventDefault();
+        toggleShapeSelect();
+    });
+    
+    cutBtn.addEventListener('click', toggleCutMode);
+    cutBtn.addEventListener('touchstart', function(e) {
+        e.preventDefault();
+        toggleCutMode();
+    });
+    
+    lockBtn.addEventListener('click', toggleLockMode);
+    lockBtn.addEventListener('touchstart', function(e) {
+        e.preventDefault();
+        toggleLockMode();
+    });
+    
+    clearBtn.addEventListener('click', clearCanvas);
+    clearBtn.addEventListener('touchstart', function(e) {
+        e.preventDefault();
+        clearCanvas();
+    });
+
+    // Update button states
+    updateButtonStates();
 }
 
 function handleColorPickerChange(event) {
@@ -1504,4 +1453,65 @@ function createSelectionIndicator(x, y) {
     // Position it at the touch point
     selectionIndicator.style.left = (x - 20) + 'px';
     selectionIndicator.style.top = (y - 20) + 'px';
+}
+
+function splitParticle(particle) {
+    // Get original particle properties
+    const originalSize = particle.size;
+    const pos = particle.body.position;
+    const originalColor = particle.color;
+    const originalShape = particle.shape;
+    
+    // Remove the original particle
+    particle.remove();
+    const index = particles.indexOf(particle);
+    if (index !== -1) {
+        particles.splice(index, 1);
+    }
+    
+    // Also remove from selected and locked arrays if needed
+    const selectedIndex = selectedParticles.indexOf(particle);
+    if (selectedIndex !== -1) {
+        selectedParticles.splice(selectedIndex, 1);
+    }
+    
+    const lockedIndex = lockedParticles.indexOf(particle);
+    if (lockedIndex !== -1) {
+        lockedParticles.splice(lockedIndex, 1);
+    }
+    
+    // Number of smaller particles to create
+    const numFragments = floor(random(4, 8));
+    
+    // Size reduction factor - particles will be 60% of original size
+    const sizeReduction = 0.6;
+    
+    // Store the original base size
+    const originalBaseSize = baseSize;
+    
+    // Temporarily reduce base size for creating smaller particles
+    // We want new particles that are sizeReduction (e.g. 60%) of the original's size
+    // PhysicsParticle constructor uses random(baseSize * 0.75, baseSize * 1.5)
+    // So we adjust baseSize so the middle of this range (baseSize * 1.125) is sizeReduction * originalSize
+    baseSize = originalSize * sizeReduction / 1.125;
+    
+    // Create smaller particles
+    for (let i = 0; i < numFragments; i++) {
+        // Create a new particle with temporarily reduced baseSize
+        const newParticle = new PhysicsParticle(pos.x, pos.y, originalColor, originalShape);
+        
+        // Apply random velocity for explosion effect
+        const angle = random(TWO_PI);
+        const force = random(2, 5);
+        Matter.Body.setVelocity(newParticle.body, {
+            x: cos(angle) * force,
+            y: sin(angle) * force
+        });
+        
+        // Add to particles array
+        particles.push(newParticle);
+    }
+    
+    // Restore original base size
+    baseSize = originalBaseSize;
 }
