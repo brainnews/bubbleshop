@@ -1129,12 +1129,17 @@ function setupControls() {
     });
     
     // Set up color picker change handler
-    colorPickerInput.addEventListener('input', (event) => {
+    colorPickerInput.addEventListener('change', (event) => {
         const hexColor = event.target.value;
         currentPickedColor = hexToRgb(hexColor);
         
-        if (!isRandomColor) {
-            currentColor.style.backgroundColor = `rgb(${currentPickedColor[0]}, ${currentPickedColor[1]}, ${currentPickedColor[2]})`;
+        // Always update the color display when a new color is picked
+        currentColor.style.backgroundColor = `rgb(${currentPickedColor[0]}, ${currentPickedColor[1]}, ${currentPickedColor[2]})`;
+        
+        // If we're in random color mode, switch to custom color mode
+        if (isRandomColor) {
+            isRandomColor = false;
+            currentColor.classList.remove('rainbow-bg');
         }
     });
     
@@ -1517,9 +1522,14 @@ function handleColorPickerChange(event) {
     const hexColor = event.target.value;
     currentPickedColor = hexToRgb(hexColor);
     
-    if (!isRandomColor) {
-        const currentColor = document.getElementById('currentColor');
-        currentColor.style.backgroundColor = `rgb(${currentPickedColor[0]}, ${currentPickedColor[1]}, ${currentPickedColor[2]})`;
+    // Always update the color display when a new color is picked
+    const currentColor = document.getElementById('currentColor');
+    currentColor.style.backgroundColor = `rgb(${currentPickedColor[0]}, ${currentPickedColor[1]}, ${currentPickedColor[2]})`;
+    
+    // If we're in random color mode, switch to custom color mode
+    if (isRandomColor) {
+        isRandomColor = false;
+        currentColor.classList.remove('rainbow-bg');
     }
 }
 
