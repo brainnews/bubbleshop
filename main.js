@@ -269,8 +269,41 @@ class PhysicsParticle {
                                 particle.body.position.x, particle.body.position.y
                             );
                             
-                            // If particles are touching
-                            if (distance < (this.size + particle.size) / 2) {
+                            // Calculate the combined radius including padding based on shape
+                            let acidRadius, targetRadius;
+                            
+                            // Acid particle radius
+                            switch (this.shape) {
+                                case 'circle':
+                                    acidRadius = this.size/2 + padding;
+                                    break;
+                                case 'square':
+                                    acidRadius = this.size/2 + padding;
+                                    break;
+                                case 'triangle':
+                                    acidRadius = this.size/1.8 + padding;
+                                    break;
+                                default:
+                                    acidRadius = this.size/2 + padding;
+                            }
+                            
+                            // Target particle radius
+                            switch (particle.shape) {
+                                case 'circle':
+                                    targetRadius = particle.size/2 + padding;
+                                    break;
+                                case 'square':
+                                    targetRadius = particle.size/2 + padding;
+                                    break;
+                                case 'triangle':
+                                    targetRadius = particle.size/1.8 + padding;
+                                    break;
+                                default:
+                                    targetRadius = particle.size/2 + padding;
+                            }
+                            
+                            // If particles are touching (using physics body sizes)
+                            if (distance < (acidRadius + targetRadius)) {
                                 // Reduce the target particle's size
                                 const newSize = particle.size * (1 - this.acidStrength);
                                 
@@ -296,11 +329,84 @@ class PhysicsParticle {
                                     // Update button states
                                     updateButtonStates();
                                 } else {
-                                    // Calculate the scale factor based on the new size relative to original size
-                                    const scale = newSize / particle.originalSize;
+                                    // Store the particle's current position and velocity
+                                    const pos = particle.body.position;
+                                    const vel = particle.body.velocity;
+                                    const angle = particle.body.angle;
                                     
-                                    // Update the particle's physics body size
-                                    Matter.Body.scale(particle.body, scale, scale);
+                                    // Remove the old body
+                                    Matter.World.remove(world, particle.body);
+                                    
+                                    // Create a new body with the updated size
+                                    let newBody;
+                                    switch (particle.shape) {
+                                        case 'circle':
+                                            newBody = Matter.Bodies.circle(
+                                                pos.x,
+                                                pos.y,
+                                                newSize/2 + padding,
+                                                {
+                                                    friction: 0.3,
+                                                    restitution: 0.4,
+                                                    angle: angle,
+                                                    density: 0.001,
+                                                    label: 'particle'
+                                                }
+                                            );
+                                            break;
+                                        case 'square':
+                                            newBody = Matter.Bodies.rectangle(
+                                                pos.x,
+                                                pos.y,
+                                                newSize + padding,
+                                                newSize + padding,
+                                                {
+                                                    friction: 0.3,
+                                                    restitution: 0.4,
+                                                    angle: angle,
+                                                    density: 0.001,
+                                                    label: 'particle'
+                                                }
+                                            );
+                                            break;
+                                        case 'triangle':
+                                            newBody = Matter.Bodies.polygon(
+                                                pos.x,
+                                                pos.y,
+                                                3,
+                                                newSize/1.8,
+                                                {
+                                                    friction: 0.3,
+                                                    restitution: 0.4,
+                                                    angle: angle,
+                                                    density: 0.001,
+                                                    label: 'particle'
+                                                }
+                                            );
+                                            break;
+                                        default:
+                                            newBody = Matter.Bodies.circle(
+                                                pos.x,
+                                                pos.y,
+                                                newSize/2 + padding,
+                                                {
+                                                    friction: 0.3,
+                                                    restitution: 0.4,
+                                                    angle: angle,
+                                                    density: 0.001,
+                                                    label: 'particle'
+                                                }
+                                            );
+                                    }
+                                    
+                                    // Restore the particle's velocity
+                                    Matter.Body.setVelocity(newBody, vel);
+                                    
+                                    // Add the new body to the world
+                                    Matter.World.add(world, newBody);
+                                    
+                                    // Update the particle's body reference
+                                    particle.body = newBody;
                                     
                                     // Update the particle's visual size
                                     particle.size = newSize;
