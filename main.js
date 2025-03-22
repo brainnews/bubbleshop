@@ -203,6 +203,8 @@ class PhysicsParticle {
         this.acidStrength = 0.1;
         this.lastAcidEffect = 0;
         this.originalSize = this.size;
+        this.acidDecayRate = 0.025; // Rate at which acid particles shrink
+        this.acidDecayTimer = 0; // Timer for acid decay
         
         // Create body based on shape
         switch (shape) {
@@ -259,7 +261,119 @@ class PhysicsParticle {
             // Add acid effect logic
             if (this.isAcid) {
                 const currentTime = millis();
-                // Only apply acid effect every 100ms to prevent too rapid shrinking
+                
+                // Update acid decay timer
+                this.acidDecayTimer += deltaTime;
+                
+                // Gradually shrink acid particle
+                if (this.acidDecayTimer > 100) { // Shrink every 100ms
+                    this.size *= (1 - this.acidDecayRate);
+                    
+                    // If particle is too small, remove it
+                    if (this.size < 5) {
+                        this.remove();
+                        const index = particles.indexOf(this);
+                        if (index !== -1) {
+                            particles.splice(index, 1);
+                        }
+                        
+                        // Also remove from selected and locked arrays if needed
+                        const selectedIndex = selectedParticles.indexOf(this);
+                        if (selectedIndex !== -1) {
+                            selectedParticles.splice(selectedIndex, 1);
+                        }
+                        
+                        const lockedIndex = lockedParticles.indexOf(this);
+                        if (lockedIndex !== -1) {
+                            lockedParticles.splice(lockedIndex, 1);
+                        }
+                        
+                        // Update button states
+                        updateButtonStates();
+                    } else {
+                        // Store the particle's current position and velocity
+                        const pos = this.body.position;
+                        const vel = this.body.velocity;
+                        const angle = this.body.angle;
+                        
+                        // Remove the old body
+                        Matter.World.remove(world, this.body);
+                        
+                        // Create a new body with the updated size
+                        let newBody;
+                        switch (this.shape) {
+                            case 'circle':
+                                newBody = Matter.Bodies.circle(
+                                    pos.x,
+                                    pos.y,
+                                    this.size/2 + padding,
+                                    {
+                                        friction: 0.3,
+                                        restitution: 0.4,
+                                        angle: angle,
+                                        density: 0.001,
+                                        label: 'particle'
+                                    }
+                                );
+                                break;
+                            case 'square':
+                                newBody = Matter.Bodies.rectangle(
+                                    pos.x,
+                                    pos.y,
+                                    this.size + padding,
+                                    this.size + padding,
+                                    {
+                                        friction: 0.3,
+                                        restitution: 0.4,
+                                        angle: angle,
+                                        density: 0.001,
+                                        label: 'particle'
+                                    }
+                                );
+                                break;
+                            case 'triangle':
+                                newBody = Matter.Bodies.polygon(
+                                    pos.x,
+                                    pos.y,
+                                    3,
+                                    this.size/1.8,
+                                    {
+                                        friction: 0.3,
+                                        restitution: 0.4,
+                                        angle: angle,
+                                        density: 0.001,
+                                        label: 'particle'
+                                    }
+                                );
+                                break;
+                            default:
+                                newBody = Matter.Bodies.circle(
+                                    pos.x,
+                                    pos.y,
+                                    this.size/2 + padding,
+                                    {
+                                        friction: 0.3,
+                                        restitution: 0.4,
+                                        angle: angle,
+                                        density: 0.001,
+                                        label: 'particle'
+                                    }
+                                );
+                        }
+                        
+                        // Restore the particle's velocity
+                        Matter.Body.setVelocity(newBody, vel);
+                        
+                        // Add the new body to the world
+                        Matter.World.add(world, newBody);
+                        
+                        // Update the particle's body reference
+                        this.body = newBody;
+                    }
+                    this.acidDecayTimer = 0;
+                }
+                
+                // Only apply acid effect to other particles every 100ms
                 if (currentTime - this.lastAcidEffect > 100) {
                     // Check for collisions with other particles
                     for (let particle of particles) {
@@ -466,13 +580,13 @@ class PhysicsParticle {
             // Normal, locked, or acid state
             if (this.isAcid) {
                 // Acid particles have a green glow and pulsing effect
-                fill(0, 255, 0, 100);
-                stroke(0, 255, 0, 150);
-                strokeWeight(2);
+                fill(this.color[0], this.color[1], this.color[2], 100);
+                stroke(this.color[0], this.color[1], this.color[2], 150);
+                strokeWeight(1);
                 circle(0, 0, this.size * 1.2);
                 
                 // Main acid particle color (bright green)
-                fill(0, 255, 0, 200);
+                fill(this.color[0], this.color[1], this.color[2], 200);
             } else if (this.isLocked) {
                 // Locked particles are paler in color
                 fill(
@@ -581,7 +695,7 @@ function mousePressed() {
             if (vKeyPressed) {
                 // Convert particle to acid
                 particle.isAcid = true;
-                particle.color = [0, 255, 0]; // Bright green color
+                //particle.color = [0, 255, 0]; // Bright green color
                 clicked = true;
                 break;
             } else if (xKeyPressed) {
