@@ -1224,24 +1224,6 @@ function setupControls() {
     currentPickedColor = [initialR, initialG, initialB];
     colorPickerInput.value = rgbToHex(initialR, initialG, initialB);
     
-    // Set up current color click handler
-    currentColor.addEventListener('click', () => {
-        if (isRandomColor) {
-            // Switch to custom color mode
-            isRandomColor = false;
-            currentColor.classList.remove('rainbow-bg');
-            currentColor.style.backgroundColor = `rgb(${currentPickedColor[0]}, ${currentPickedColor[1]}, ${currentPickedColor[2]})`;
-            
-            // Open the color picker
-            colorPickerInput.click();
-        } else {
-            // Switch back to random color mode
-            isRandomColor = true;
-            currentColor.classList.add('rainbow-bg');
-            currentColor.style.backgroundColor = '';
-        }
-    });
-    
     // Set up color picker change handler
     colorPickerInput.addEventListener('change', (event) => {
         const hexColor = event.target.value;
