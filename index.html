@@ -6,7 +6,7 @@
     <title>Bubbleshop™️</title>
     <link rel="apple-touch-icon" sizes="180x180" href="./../../apple-touch-icon.png">
     <link rel="icon" type="image/png" sizes="32x32" href="./../../favicon-32x32.png">
-    <link rel="icon" type="image/png" sizes="16x16" href="f./../../avicon-16x16.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="./../../favicon-16x16.png">
     <link rel="manifest" href="./../../site.webmanifest">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -29,38 +29,54 @@
     <div class="container">
         <div id="canvasContainer"></div>
         <div class="toolbar-container">
-            <div id="toolbar" class="toolbar">
-                <button id="currentColor" class="current-color rainbow-bg toolbar-btn">
+            <div id="toolbar" class="toolbar" role="toolbar" aria-label="Particle controls">
+                <button id="currentColor" class="current-color rainbow-bg toolbar-btn"
+                        aria-label="Toggle color picker"
+                        title="Toggle between random colors and custom color">
                 </button>
                 <div class="color-picker-container">
-                    <input type="color" id="colorPickerInput" class="color-picker-input">
+                    <input type="color" id="colorPickerInput" class="color-picker-input"
+                           aria-label="Choose custom color">
                 </div>
-                <button id="shapeSelectBtn" class="toolbar-btn">
-                    <span class="material-symbols-outlined">
+                <button id="shapeSelectBtn" class="toolbar-btn"
+                        aria-label="Cycle shape (Circle)"
+                        title="Cycle between Circle, Square, and Triangle">
+                    <span class="material-symbols-outlined" aria-hidden="true">
                         circle
                     </span>
                 </button>
-                <button id="cutBtn" class="toolbar-btn disabled">
-                    <span class="material-symbols-outlined">
+                <button id="cutBtn" class="toolbar-btn disabled"
+                        aria-label="Delete selected particles"
+                        title="Remove selected particles (Backspace)"
+                        aria-disabled="true">
+                    <span class="material-symbols-outlined" aria-hidden="true">
                         content_cut
                     </span>
                 </button>
-                <button id="lockBtn" class="toolbar-btn disabled">
-                    <span class="material-symbols-outlined">
+                <button id="lockBtn" class="toolbar-btn disabled"
+                        aria-label="Lock selected particles"
+                        title="Fix selected particles in place (L)"
+                        aria-disabled="true">
+                    <span class="material-symbols-outlined" aria-hidden="true">
                         lock
                     </span>
                 </button>
-                <button id="clearBtn" class="toolbar-btn disabled">
-                    <span class="material-symbols-outlined">
+                <button id="clearBtn" class="toolbar-btn disabled"
+                        aria-label="Clear all particles"
+                        title="Remove all particles"
+                        aria-disabled="true">
+                    <span class="material-symbols-outlined" aria-hidden="true">
                         cleaning_services
                     </span>
                 </button>
-                <button id="helpBtn" class="toolbar-btn">
-                    <span class="material-symbols-outlined">
+                <button id="helpBtn" class="toolbar-btn"
+                        aria-label="Show help"
+                        title="Show keyboard shortcuts and controls (?)">
+                    <span class="material-symbols-outlined" aria-hidden="true">
                         help
                     </span>
                 </button>
-                <div id="particleCount">37</div>
+                <div id="particleCount" aria-live="polite" aria-label="Particle count">37</div>
             </div>
         </div>
         <div id="instructions">Tap anywhere to exist</div>
