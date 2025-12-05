@@ -270,6 +270,7 @@ function setup() {
     soundManager = new SoundPackManager();
     soundManager.registerPack('original', OriginalSoundPack);
     soundManager.registerPack('retro8bit', Retro8BitSoundPack);
+    soundManager.registerPack('orchestral', OrchestraSoundPack);
     soundManager.loadSavedPack();
 
     // Create and cache the background
@@ -2985,6 +2986,851 @@ class Retro8BitSoundPack extends BaseSoundPack {
         const notes = [this.scale.E5, this.scale.D5, this.scale.C5, this.scale.G4, this.scale.C4];
 
         this.playPulseArpeggio(notes.slice(0, numNotes), 0.05);
+    }
+}
+
+/**
+ * OrchestraSoundPack - Classical orchestra instrumentation
+ *
+ * Uses traditional C major scale with orchestral synthesis techniques:
+ * - Strings: Sawtooth waves with filter sweeps
+ * - Brass: Square waves with formant filtering
+ * - Woodwinds: Sine waves with subtle noise
+ * - Percussion: Noise bursts with tuned resonance
+ */
+class OrchestraSoundPack extends BaseSoundPack {
+    constructor() {
+        super();
+
+        // Traditional C major scale (multiple octaves)
+        this.scale = {
+            C3: 130.81,
+            D3: 146.83,
+            E3: 164.81,
+            F3: 174.61,
+            G3: 196.00,
+            A3: 220.00,
+            B3: 246.94,
+            C4: 261.63,
+            D4: 293.66,
+            E4: 329.63,
+            F4: 349.23,
+            G4: 392.00,
+            A4: 440.00,
+            B4: 493.88,
+            C5: 523.25,
+            D5: 587.33,
+            E5: 659.25,
+            F5: 698.46,
+            G5: 783.99,
+            A5: 880.00,
+            B5: 987.77,
+            C6: 1046.50
+        };
+
+        this.init();
+    }
+
+    // ========================================================================
+    // HELPER METHODS - Orchestral Synthesis
+    // ========================================================================
+
+    /**
+     * Play string section sound with sawtooth wave and filter sweep
+     */
+    playStrings(frequency, duration, volume = 0.3) {
+        if (!this.audioContext || this.isMuted || this.activeOscillators >= this.maxOscillators) {
+            return;
+        }
+
+        this.ensureAudioContext();
+        this.activeOscillators++;
+
+        const now = this.audioContext.currentTime;
+        const attack = 0.08;
+        const release = 0.4;
+
+        // Sawtooth oscillator for rich harmonics
+        const osc = this.audioContext.createOscillator();
+        osc.type = 'sawtooth';
+        osc.frequency.value = frequency;
+
+        // Lowpass filter sweep for natural string attack
+        const filter = this.audioContext.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = 800;
+        filter.frequency.exponentialRampToValueAtTime(3000, now + attack);
+        filter.Q.value = 1;
+
+        // Envelope with slow attack
+        const gainNode = this.audioContext.createGain();
+        gainNode.gain.value = 0;
+        gainNode.gain.linearRampToValueAtTime(volume, now + attack);
+        gainNode.gain.linearRampToValueAtTime(volume * 0.6, now + attack + duration);
+        gainNode.gain.linearRampToValueAtTime(0, now + attack + duration + release);
+
+        // Connect: osc → filter → gain → master
+        osc.connect(filter);
+        filter.connect(gainNode);
+        gainNode.connect(this.masterGain);
+
+        osc.start(now);
+        osc.stop(now + attack + duration + release);
+
+        osc.onended = () => {
+            this.activeOscillators--;
+        };
+    }
+
+    /**
+     * Play brass stab with square wave and sharp attack
+     */
+    playBrass(frequency, duration, volume = 0.35) {
+        if (!this.audioContext || this.isMuted || this.activeOscillators >= this.maxOscillators) {
+            return;
+        }
+
+        this.ensureAudioContext();
+        this.activeOscillators++;
+
+        const now = this.audioContext.currentTime;
+        const attack = 0.02;
+        const release = 0.3;
+
+        // Square wave for brass character
+        const osc = this.audioContext.createOscillator();
+        osc.type = 'square';
+        osc.frequency.value = frequency;
+
+        // Slight pitch bend up at start (brass attack characteristic)
+        osc.frequency.setValueAtTime(frequency * 1.05, now);
+        osc.frequency.exponentialRampToValueAtTime(frequency, now + attack);
+
+        // Formant-like filtering for brass timbre
+        const filter = this.audioContext.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.value = 1500;
+        filter.Q.value = 3;
+
+        // Sharp attack envelope
+        const gainNode = this.audioContext.createGain();
+        gainNode.gain.value = 0;
+        gainNode.gain.linearRampToValueAtTime(volume, now + attack);
+        gainNode.gain.linearRampToValueAtTime(volume * 0.5, now + attack + duration);
+        gainNode.gain.linearRampToValueAtTime(0, now + attack + duration + release);
+
+        osc.connect(filter);
+        filter.connect(gainNode);
+        gainNode.connect(this.masterGain);
+
+        osc.start(now);
+        osc.stop(now + attack + duration + release);
+
+        osc.onended = () => {
+            this.activeOscillators--;
+        };
+    }
+
+    /**
+     * Play woodwind sound with sine wave (pure tone)
+     */
+    playWoodwind(frequency, duration, volume = 0.25) {
+        if (!this.audioContext || this.isMuted || this.activeOscillators >= this.maxOscillators) {
+            return;
+        }
+
+        this.ensureAudioContext();
+        this.activeOscillators++;
+
+        const now = this.audioContext.currentTime;
+        const attack = 0.05;
+        const release = 0.2;
+
+        // Sine wave for woodwind purity
+        const osc = this.audioContext.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.value = frequency;
+
+        // Gentle envelope
+        const gainNode = this.audioContext.createGain();
+        gainNode.gain.value = 0;
+        gainNode.gain.linearRampToValueAtTime(volume, now + attack);
+        gainNode.gain.linearRampToValueAtTime(volume * 0.6, now + attack + duration);
+        gainNode.gain.linearRampToValueAtTime(0, now + attack + duration + release);
+
+        osc.connect(gainNode);
+        gainNode.connect(this.masterGain);
+
+        osc.start(now);
+        osc.stop(now + attack + duration + release);
+
+        osc.onended = () => {
+            this.activeOscillators--;
+        };
+    }
+
+    /**
+     * Play pizzicato (plucked string) - short, percussive
+     */
+    playPizzicato(frequency, volume = 0.3) {
+        if (!this.audioContext || this.isMuted || this.activeOscillators >= this.maxOscillators) {
+            return;
+        }
+
+        this.ensureAudioContext();
+        this.activeOscillators++;
+
+        const now = this.audioContext.currentTime;
+        const attack = 0.005;
+        const decay = 0.15;
+
+        // Sawtooth for string character, but very short
+        const osc = this.audioContext.createOscillator();
+        osc.type = 'sawtooth';
+        osc.frequency.value = frequency;
+
+        // Very fast attack, quick decay
+        const gainNode = this.audioContext.createGain();
+        gainNode.gain.value = volume;
+        gainNode.gain.exponentialRampToValueAtTime(0.001, now + decay);
+
+        osc.connect(gainNode);
+        gainNode.connect(this.masterGain);
+
+        osc.start(now);
+        osc.stop(now + decay);
+
+        osc.onended = () => {
+            this.activeOscillators--;
+        };
+    }
+
+    /**
+     * Play timpani (orchestral bass drum) with tuned resonance
+     */
+    playTimpani(frequency, volume = 0.4) {
+        if (!this.audioContext || this.isMuted || this.activeOscillators >= this.maxOscillators) {
+            return;
+        }
+
+        this.ensureAudioContext();
+        this.activeOscillators++;
+
+        const now = this.audioContext.currentTime;
+        const duration = 0.3;
+
+        // Low sine wave for pitch
+        const osc = this.audioContext.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.value = frequency;
+
+        // Noise for attack
+        const bufferSize = this.audioContext.sampleRate * 0.05;
+        const buffer = this.audioContext.createBuffer(1, bufferSize, this.audioContext.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+            data[i] = Math.random() * 2 - 1;
+        }
+
+        const noise = this.audioContext.createBufferSource();
+        noise.buffer = buffer;
+
+        // Noise filter
+        const noiseFilter = this.audioContext.createBiquadFilter();
+        noiseFilter.type = 'lowpass';
+        noiseFilter.frequency.value = 200;
+
+        // Gain for oscillator (pitch)
+        const oscGain = this.audioContext.createGain();
+        oscGain.gain.value = volume;
+        oscGain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+        // Gain for noise
+        const noiseGain = this.audioContext.createGain();
+        noiseGain.gain.value = volume * 0.5;
+        noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+
+        osc.connect(oscGain);
+        oscGain.connect(this.masterGain);
+
+        noise.connect(noiseFilter);
+        noiseFilter.connect(noiseGain);
+        noiseGain.connect(this.masterGain);
+
+        osc.start(now);
+        osc.stop(now + duration);
+        noise.start(now);
+
+        osc.onended = () => {
+            this.activeOscillators--;
+        };
+    }
+
+    /**
+     * Play harp glissando (rapid ascending notes)
+     */
+    playHarpGlissando(startFreq, endFreq, duration, volume = 0.25) {
+        if (!this.audioContext || this.isMuted) {
+            return;
+        }
+
+        this.ensureAudioContext();
+
+        // Find notes between start and end frequencies
+        const scaleNotes = Object.values(this.scale).sort((a, b) => a - b);
+        const notes = scaleNotes.filter(f => f >= startFreq && f <= endFreq);
+
+        const noteInterval = (duration * 1000) / notes.length;
+
+        notes.forEach((freq, index) => {
+            setTimeout(() => {
+                this.playPizzicato(freq, volume * 0.8);
+            }, index * noteInterval);
+        });
+    }
+
+    /**
+     * Play string section arpeggio (ascending scale)
+     */
+    playStringArpeggio(frequencies, stagger = 0.08, volume = 0.25) {
+        frequencies.forEach((freq, index) => {
+            setTimeout(() => {
+                this.playStrings(freq, 0.15, volume);
+            }, index * stagger * 1000);
+        });
+    }
+
+    /**
+     * Play wood block sound - sharp, percussive click
+     */
+    playWoodBlock(frequency, volume = 0.3) {
+        if (!this.audioContext || this.isMuted || this.activeOscillators >= this.maxOscillators) {
+            return;
+        }
+
+        this.ensureAudioContext();
+        this.activeOscillators++;
+
+        const now = this.audioContext.currentTime;
+        const duration = 0.04;
+
+        // Triangle wave for woody character
+        const osc = this.audioContext.createOscillator();
+        osc.type = 'triangle';
+        osc.frequency.value = frequency;
+
+        // Highpass filter for click character
+        const filter = this.audioContext.createBiquadFilter();
+        filter.type = 'highpass';
+        filter.frequency.value = 800;
+        filter.Q.value = 1;
+
+        // Very fast decay
+        const gainNode = this.audioContext.createGain();
+        gainNode.gain.value = volume;
+        gainNode.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+        osc.connect(filter);
+        filter.connect(gainNode);
+        gainNode.connect(this.masterGain);
+
+        osc.start(now);
+        osc.stop(now + duration);
+
+        osc.onended = () => {
+            this.activeOscillators--;
+        };
+    }
+
+    /**
+     * Play snare drum sound - noise burst with tuned resonance
+     */
+    playSnareDrum(volume = 0.35) {
+        if (!this.audioContext || this.isMuted || this.activeOscillators >= this.maxOscillators) {
+            return;
+        }
+
+        this.ensureAudioContext();
+        this.activeOscillators++;
+
+        const now = this.audioContext.currentTime;
+        const duration = 0.15;
+
+        // Create noise for snare rattle
+        const bufferSize = this.audioContext.sampleRate * duration;
+        const buffer = this.audioContext.createBuffer(1, bufferSize, this.audioContext.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+            data[i] = Math.random() * 2 - 1;
+        }
+
+        const noise = this.audioContext.createBufferSource();
+        noise.buffer = buffer;
+
+        // Highpass filter for snare brightness
+        const filter = this.audioContext.createBiquadFilter();
+        filter.type = 'highpass';
+        filter.frequency.value = 1000;
+        filter.Q.value = 1;
+
+        // Add tonal component (snare shell resonance)
+        const osc = this.audioContext.createOscillator();
+        osc.type = 'triangle';
+        osc.frequency.value = 180; // Snare fundamental
+
+        // Noise gain (sharp attack, fast decay)
+        const noiseGain = this.audioContext.createGain();
+        noiseGain.gain.value = volume;
+        noiseGain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+        // Tone gain (very subtle)
+        const toneGain = this.audioContext.createGain();
+        toneGain.gain.value = volume * 0.3;
+        toneGain.gain.exponentialRampToValueAtTime(0.001, now + duration * 0.5);
+
+        noise.connect(filter);
+        filter.connect(noiseGain);
+        noiseGain.connect(this.masterGain);
+
+        osc.connect(toneGain);
+        toneGain.connect(this.masterGain);
+
+        noise.start(now);
+        osc.start(now);
+        osc.stop(now + duration * 0.5);
+
+        osc.onended = () => {
+            this.activeOscillators--;
+        };
+    }
+
+    /**
+     * Play cymbal crash - bright noise burst
+     */
+    playCymbal(volume = 0.3) {
+        if (!this.audioContext || this.isMuted || this.activeOscillators >= this.maxOscillators) {
+            return;
+        }
+
+        this.ensureAudioContext();
+        this.activeOscillators++;
+
+        const now = this.audioContext.currentTime;
+        const duration = 0.25;
+
+        // Create noise buffer
+        const bufferSize = this.audioContext.sampleRate * duration;
+        const buffer = this.audioContext.createBuffer(1, bufferSize, this.audioContext.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+            data[i] = Math.random() * 2 - 1;
+        }
+
+        const noise = this.audioContext.createBufferSource();
+        noise.buffer = buffer;
+
+        // Highpass filter for cymbal brightness
+        const highpass = this.audioContext.createBiquadFilter();
+        highpass.type = 'highpass';
+        highpass.frequency.value = 3000;
+        highpass.Q.value = 1;
+
+        // Bandpass for metallic character
+        const bandpass = this.audioContext.createBiquadFilter();
+        bandpass.type = 'bandpass';
+        bandpass.frequency.value = 8000;
+        bandpass.Q.value = 0.5;
+
+        // Gain envelope - fast attack, medium decay
+        const gainNode = this.audioContext.createGain();
+        gainNode.gain.value = volume;
+        gainNode.gain.linearRampToValueAtTime(volume * 0.6, now + 0.05);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+        noise.connect(highpass);
+        highpass.connect(bandpass);
+        bandpass.connect(gainNode);
+        gainNode.connect(this.masterGain);
+
+        noise.start(now);
+
+        setTimeout(() => {
+            this.activeOscillators--;
+        }, duration * 1000);
+    }
+
+    /**
+     * Play triangle (orchestral percussion) - bright metallic ping
+     */
+    playTriangle(frequency, volume = 0.25) {
+        if (!this.audioContext || this.isMuted || this.activeOscillators >= this.maxOscillators) {
+            return;
+        }
+
+        this.ensureAudioContext();
+        this.activeOscillators++;
+
+        const now = this.audioContext.currentTime;
+        const duration = 0.3;
+
+        // Multiple sine waves for metallic shimmer (inharmonic)
+        const frequencies = [frequency, frequency * 2.4, frequency * 3.8, frequency * 5.1];
+
+        frequencies.forEach((freq, index) => {
+            const osc = this.audioContext.createOscillator();
+            osc.type = 'sine';
+            osc.frequency.value = freq;
+
+            const gainNode = this.audioContext.createGain();
+            const amp = volume / (index + 1); // Higher partials quieter
+            gainNode.gain.value = amp;
+            gainNode.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+            osc.connect(gainNode);
+            gainNode.connect(this.masterGain);
+
+            osc.start(now);
+            osc.stop(now + duration);
+
+            if (index === 0) {
+                osc.onended = () => {
+                    this.activeOscillators--;
+                };
+            }
+        });
+    }
+
+    // ========================================================================
+    // PARTICLE PHYSICS SOUNDS
+    // ========================================================================
+
+    particleCreate(count) {
+        this.ensureAudioContext();
+
+        // String section swell - ascending major scale
+        const notes = [this.scale.C4, this.scale.E4, this.scale.G4, this.scale.C5, this.scale.E5, this.scale.G5, this.scale.C6];
+
+        const numNotes = Math.min(7, Math.ceil(count / 10));
+        const selectedNotes = notes.slice(0, numNotes);
+
+        // Slower, more majestic stagger
+        const stagger = count > 40 ? 0.1 : 0.08;
+
+        this.playStringArpeggio(selectedNotes, stagger, 0.2);
+    }
+
+    particleCollision(velocity, size1, size2) {
+        const now = Date.now();
+
+        if (now - this.lastCollisionSound < this.collisionCooldown) {
+            return;
+        }
+        this.lastCollisionSound = now;
+
+        this.ensureAudioContext();
+
+        // Calculate pitch based on size (larger particles = lower pitch)
+        const avgSize = (size1 + size2) / 2;
+        const sizeMultiplier = constrain(map(avgSize / baseSize, 0.75, 1.5, 1.3, 0.7), 0.6, 1.4);
+
+        // Volume based on velocity
+        const vol = constrain(map(velocity, 0, 15, 0.1, 0.35), 0.05, 0.35);
+        const densityScale = constrain(map(particles.length, 0, MAX_PARTICLES, 1.0, 0.3), 0.2, 1.0);
+
+        // Use different percussion instruments based on velocity
+        if (velocity > 10) {
+            // Very high velocity: Cymbal crash
+            this.playCymbal(vol * densityScale * 0.8);
+        } else if (velocity > 6) {
+            // High velocity: Timpani (kettle drum)
+            const velocityMultiplier = constrain(map(velocity, 6, 15, 0.9, 1.2), 0.85, 1.3);
+            const freq = this.scale.C3 * sizeMultiplier * velocityMultiplier;
+            this.playTimpani(freq, vol * densityScale);
+        } else if (velocity > 3) {
+            // Medium velocity: Wood block
+            const freq = this.scale.G4 * sizeMultiplier;
+            this.playWoodBlock(freq, vol * densityScale * 0.9);
+        } else {
+            // Low velocity: Triangle (bright, delicate)
+            const freq = this.scale.C6 * sizeMultiplier;
+            this.playTriangle(freq, vol * densityScale * 0.8);
+        }
+    }
+
+    wallBounce(velocity) {
+        const now = Date.now();
+
+        if (now - this.lastWallBounceSound < this.wallBounceCooldown) {
+            return;
+        }
+        this.lastWallBounceSound = now;
+
+        this.ensureAudioContext();
+
+        // Timpani hit - velocity affects pitch slightly
+        const baseFreq = this.scale.C3;
+        const velocityMultiplier = constrain(map(velocity, 0, 15, 0.9, 1.1), 0.85, 1.15);
+
+        this.playTimpani(baseFreq * velocityMultiplier, 0.25);
+    }
+
+    acidConvert() {
+        this.ensureAudioContext();
+        // Mysterious woodwind flutter descending
+        this.playWoodwind(this.scale.A5, 0.05, 0.2);
+        setTimeout(() => {
+            this.playWoodwind(this.scale.F5, 0.05, 0.18);
+        }, 60);
+        setTimeout(() => {
+            this.playWoodwind(this.scale.D5, 0.08, 0.15);
+        }, 120);
+    }
+
+    acidCorrosion() {
+        this.ensureAudioContext();
+        // Very subtle woodwind whisper
+        this.playWoodwind(this.scale.E3, 0.1, 0.04);
+    }
+
+    particleSplit(fragmentCount) {
+        this.ensureAudioContext();
+
+        // Rapid pizzicato cascade
+        const majorScalePool = [this.scale.C5, this.scale.D5, this.scale.E5, this.scale.F5, this.scale.G5, this.scale.A5, this.scale.B5, this.scale.C6];
+        const notes = [];
+
+        for (let i = 0; i < fragmentCount; i++) {
+            notes.push(majorScalePool[Math.floor(Math.random() * majorScalePool.length)]);
+        }
+
+        notes.forEach((freq, index) => {
+            setTimeout(() => {
+                this.playPizzicato(freq, 0.15);
+            }, index * 15);
+        });
+    }
+
+    // ========================================================================
+    // UI BUTTON SOUNDS
+    // ========================================================================
+
+    colorPickerToggle(toRandom) {
+        this.ensureAudioContext();
+
+        if (toRandom) {
+            // Harp glissando up
+            this.playHarpGlissando(this.scale.C5, this.scale.C6, 0.15, 0.2);
+        } else {
+            // Harp glissando down
+            this.playHarpGlissando(this.scale.C6, this.scale.C5, 0.15, 0.2);
+        }
+    }
+
+    shapeSelect() {
+        this.ensureAudioContext();
+
+        // Woodwind notes cycling through major triad
+        const shapeIndex = shapes.indexOf(currentShape);
+        const notes = [this.scale.C5, this.scale.E5, this.scale.G5];
+        const freq = notes[shapeIndex % 3];
+
+        this.playWoodwind(freq, 0.08, 0.25);
+    }
+
+    cutButton() {
+        this.ensureAudioContext();
+
+        // Brass section descending stab
+        this.playBrass(this.scale.G4, 0.04, 0.25);
+        setTimeout(() => {
+            this.playBrass(this.scale.E4, 0.04, 0.22);
+        }, 50);
+        setTimeout(() => {
+            this.playBrass(this.scale.C4, 0.06, 0.2);
+        }, 100);
+    }
+
+    lockButton(isLocking) {
+        this.ensureAudioContext();
+
+        if (isLocking) {
+            // Brass fanfare ascending
+            this.playBrass(this.scale.C4, 0.05, 0.2);
+            setTimeout(() => {
+                this.playBrass(this.scale.E4, 0.05, 0.22);
+            }, 60);
+            setTimeout(() => {
+                this.playBrass(this.scale.G4, 0.08, 0.25);
+            }, 120);
+        } else {
+            // Brass descending
+            this.playBrass(this.scale.G4, 0.05, 0.25);
+            setTimeout(() => {
+                this.playBrass(this.scale.E4, 0.05, 0.22);
+            }, 60);
+            setTimeout(() => {
+                this.playBrass(this.scale.C4, 0.08, 0.2);
+            }, 120);
+        }
+    }
+
+    clearButton() {
+        this.ensureAudioContext();
+
+        // String section descending scale
+        const notes = [this.scale.C5, this.scale.B4, this.scale.A4, this.scale.G4, this.scale.F4, this.scale.E4, this.scale.D4, this.scale.C4];
+        notes.forEach((freq, index) => {
+            setTimeout(() => {
+                this.playStrings(freq, 0.08, 0.2);
+            }, index * 70);
+        });
+    }
+
+    helpButton(isOpening) {
+        this.ensureAudioContext();
+
+        if (isOpening) {
+            // Ascending harp arpeggio
+            const notes = [this.scale.C4, this.scale.E4, this.scale.G4, this.scale.C5];
+            notes.forEach((freq, index) => {
+                setTimeout(() => {
+                    this.playPizzicato(freq, 0.25);
+                }, index * 40);
+            });
+        } else {
+            // Descending harp arpeggio
+            const notes = [this.scale.C5, this.scale.G4, this.scale.E4, this.scale.C4];
+            notes.forEach((freq, index) => {
+                setTimeout(() => {
+                    this.playPizzicato(freq, 0.25);
+                }, index * 40);
+            });
+        }
+    }
+
+    // ========================================================================
+    // SELECTION & GESTURE SOUNDS
+    // ========================================================================
+
+    selectParticle() {
+        this.ensureAudioContext();
+        // Pizzicato accent
+        this.playPizzicato(this.scale.E5, 0.25);
+    }
+
+    deselectParticle() {
+        this.ensureAudioContext();
+        // Softer pizzicato
+        this.playPizzicato(this.scale.C5, 0.2);
+    }
+
+    marqueeSelect(particleCount) {
+        this.ensureAudioContext();
+
+        // Woodwind note based on count
+        let freq;
+        if (particleCount <= 5) freq = this.scale.C5;
+        else if (particleCount <= 10) freq = this.scale.E5;
+        else if (particleCount <= 20) freq = this.scale.G5;
+        else if (particleCount <= 40) freq = this.scale.C6;
+        else freq = this.scale.E6 || this.scale.C6;
+
+        this.playWoodwind(freq, 0.06, 0.18);
+    }
+
+    hoverParticle() {
+        const now = Date.now();
+
+        if (now - this.lastHoverSound < this.hoverCooldown) {
+            return;
+        }
+        this.lastHoverSound = now;
+
+        this.ensureAudioContext();
+        // Delicate pizzicato
+        this.playPizzicato(this.scale.C6, 0.12);
+    }
+
+    longPressSelect() {
+        this.ensureAudioContext();
+
+        // String swell from low to high
+        this.playStrings(this.scale.C3, 0.5, 0.15);
+        setTimeout(() => {
+            this.playStrings(this.scale.G3, 0.4, 0.15);
+        }, 100);
+        setTimeout(() => {
+            this.playStrings(this.scale.C4, 0.3, 0.15);
+        }, 200);
+        setTimeout(() => {
+            this.playStrings(this.scale.E4, 0.2, 0.15);
+        }, 300);
+    }
+
+    twoFingerTap() {
+        this.ensureAudioContext();
+
+        // Quick brass stabs
+        this.playBrass(this.scale.G4, 0.05, 0.25);
+        setTimeout(() => {
+            this.playBrass(this.scale.E4, 0.05, 0.22);
+        }, 80);
+    }
+
+    threeFingerTap() {
+        this.ensureAudioContext();
+
+        // Three brass stabs descending
+        this.playBrass(this.scale.C5, 0.05, 0.25);
+        setTimeout(() => {
+            this.playBrass(this.scale.G4, 0.05, 0.23);
+        }, 80);
+        setTimeout(() => {
+            this.playBrass(this.scale.C4, 0.05, 0.2);
+        }, 160);
+    }
+
+    deleteParticles(count = 1) {
+        this.ensureAudioContext();
+
+        // Descending string glissando with intensity based on count
+        const duration = Math.min(0.15 + (count * 0.01), 0.4);
+        const volume = Math.min(0.15 + (count * 0.005), 0.3);
+
+        // String section sweep downward
+        if (!this.audioContext || this.isMuted || this.activeOscillators >= this.maxOscillators) {
+            return;
+        }
+
+        this.ensureAudioContext();
+        this.activeOscillators++;
+
+        const now = this.audioContext.currentTime;
+
+        const osc = this.audioContext.createOscillator();
+        osc.type = 'sawtooth';
+        osc.frequency.value = 800;
+        osc.frequency.exponentialRampToValueAtTime(100, now + duration);
+
+        const filter = this.audioContext.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = 2000;
+        filter.frequency.exponentialRampToValueAtTime(200, now + duration);
+
+        const gainNode = this.audioContext.createGain();
+        gainNode.gain.value = volume;
+        gainNode.gain.linearRampToValueAtTime(0, now + duration);
+
+        osc.connect(filter);
+        filter.connect(gainNode);
+        gainNode.connect(this.masterGain);
+
+        osc.start(now);
+        osc.stop(now + duration);
+
+        osc.onended = () => {
+            this.activeOscillators--;
+        };
     }
 }
 
