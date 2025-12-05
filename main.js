@@ -43,6 +43,8 @@ let currentPickedColor = [255, 100, 100]; // Default custom color (will be initi
 const toolbar = document.getElementById('toolbar');
 
 let backgroundBuffer; // Add this at the top with other global variables
+let soundManager; // Sound effects manager
+let currentlyHoveredParticle = null; // Track which particle is being hovered for sound
 
 function calculateBaseSize() {
     // Calculate base size relative to screen dimensions
@@ -53,15 +55,68 @@ function setupPhysics() {
     // Initialize physics engine
     engine = Matter.Engine.create();
     world = engine.world;
-    
+
     // Reduce gravity for more floaty feel
     engine.world.gravity.y = 0.5;
-    
+
     // Create boundaries
     createBoundaries();
-    
+
+    // Setup collision detection for sound effects
+    Matter.Events.on(engine, 'collisionStart', handleCollisionSound);
+
     // Run the engine
     Matter.Runner.run(engine);
+}
+
+function handleCollisionSound(event) {
+    if (!soundManager) return;
+
+    const pairs = event.pairs;
+
+    // Minimum velocity thresholds for audible collisions
+    const MIN_PARTICLE_COLLISION_VELOCITY = 2.0; // Only play sound for visible impacts
+    const MIN_WALL_COLLISION_VELOCITY = 3.0; // Walls need more energy to be perceptible
+
+    for (let pair of pairs) {
+        const bodyA = pair.bodyA;
+        const bodyB = pair.bodyB;
+
+        // Check for particle-particle collision
+        if (bodyA.label === 'particle' && bodyB.label === 'particle') {
+            const particleA = particles.find(p => p.body === bodyA);
+            const particleB = particles.find(p => p.body === bodyB);
+
+            if (particleA && particleB) {
+                // Calculate relative velocity magnitude
+                const velA = bodyA.velocity;
+                const velB = bodyB.velocity;
+                const relativeVel = Math.sqrt(
+                    Math.pow(velA.x - velB.x, 2) + Math.pow(velA.y - velB.y, 2)
+                );
+
+                // Only play sound if collision is strong enough to be visible
+                if (relativeVel >= MIN_PARTICLE_COLLISION_VELOCITY) {
+                    soundManager.particleCollision(relativeVel, particleA.size, particleB.size);
+                }
+            }
+        }
+        // Check for particle-wall collision
+        else if (
+            (bodyA.label === 'particle' && boundaries.includes(bodyB)) ||
+            (bodyB.label === 'particle' && boundaries.includes(bodyA))
+        ) {
+            const particleBody = bodyA.label === 'particle' ? bodyA : bodyB;
+            const velocity = Math.sqrt(
+                Math.pow(particleBody.velocity.x, 2) + Math.pow(particleBody.velocity.y, 2)
+            );
+
+            // Only play sound if wall bounce is strong enough to be visible
+            if (velocity >= MIN_WALL_COLLISION_VELOCITY) {
+                soundManager.wallBounce(velocity);
+            }
+        }
+    }
 }
 
 function createBoundaries() {
@@ -93,7 +148,10 @@ function setup() {
     setupControls();
     setupPhysics();
     initializeUI();
-    
+
+    // Initialize sound manager
+    soundManager = new SoundManager();
+
     // Create and cache the background
     createBackgroundBuffer();
 }
@@ -696,6 +754,12 @@ function mousePressed() {
                 // Convert particle to acid
                 particle.isAcid = true;
                 //particle.color = [0, 255, 0]; // Bright green color
+
+                // Play acid conversion sound
+                if (soundManager) {
+                    soundManager.acidConvert();
+                }
+
                 clicked = true;
                 break;
             } else if (xKeyPressed) {
@@ -706,10 +770,20 @@ function mousePressed() {
             } else if (selectedParticles.indexOf(particle) === -1) {
                 selectedParticles.push(particle);
                 particle.isSelected = true;
+
+                // Play select sound
+                if (soundManager) {
+                    soundManager.selectParticle();
+                }
             } else {
                 selectedParticles.splice(selectedParticles.indexOf(particle), 1);
                 particle.isSelected = false;
                 particle.isHovered = false;
+
+                // Play deselect sound
+                if (soundManager) {
+                    soundManager.deselectParticle();
+                }
             }
             clicked = true;
             break;
@@ -779,23 +853,43 @@ function touchStarted() {
                 if (selectedParticles.indexOf(particle) === -1) {
                     selectedParticles.push(particle);
                     particle.isSelected = true;
+
+                    // Play select sound
+                    if (soundManager) {
+                        soundManager.selectParticle();
+                    }
                 } else {
                     selectedParticles.splice(selectedParticles.indexOf(particle), 1);
                     particle.isSelected = false;
                     particle.isHovered = false;
+
+                    // Play deselect sound
+                    if (soundManager) {
+                        soundManager.deselectParticle();
+                    }
                 }
                 touchedParticle = true;
                 break;
             }
         }
-        
+
         // If not touching a particle, create new ones
         if (!touchedParticle) {
             createParticles(touch.x, touch.y);
         }
     } else if (touches.length === 2) {
+        // Play two-finger tap sound
+        if (soundManager) {
+            soundManager.twoFingerTap();
+        }
+
         resetParticles();
     } else if (touches.length === 3) {
+        // Play snip sound
+        if (soundManager) {
+            soundManager.cutButton();
+        }
+
         // Remove only unlocked particles
         for (let i = particles.length - 1; i >= 0; i--) {
             if (!particles[i].isLocked) {
@@ -893,15 +987,20 @@ function touchMoved() {
 }
 
 function handleLongPress(x, y) {
+    // Play long press sound
+    if (soundManager) {
+        soundManager.longPressSelect();
+    }
+
     // Find particles near the long press position
     let nearbyParticles = [];
-    
+
     for (let particle of particles) {
         if (dist(x, y, particle.body.position.x, particle.body.position.y) < baseSize * 3) {
             nearbyParticles.push(particle);
         }
     }
-    
+
     // Select all nearby particles
     for (let particle of nearbyParticles) {
         if (selectedParticles.indexOf(particle) === -1) {
@@ -924,8 +1023,13 @@ function handleLongPress(x, y) {
 }
 
 function createParticles(x, y) {
+    // Play particle creation sound
+    if (soundManager) {
+        soundManager.particleCreate(spawnCount);
+    }
+
     let color;
-    
+
     if (isRandomColor) {
         // Use noise to determine color based on rgb value of previousColor
         let noiseValue1 = noise(previousColor[0]);
@@ -968,6 +1072,11 @@ function keyPressed() {
     
     if (key === 'Backspace') {
         if (selectedParticles.length > 0) {
+            // Play snip sound
+            if (soundManager) {
+                soundManager.cutButton();
+            }
+
             // Remove selected particles (even if locked)
             for (let particle of selectedParticles) {
                 // Also remove from lockedParticles if it was locked
@@ -975,7 +1084,7 @@ function keyPressed() {
                 if (lockedIndex !== -1) {
                     lockedParticles.splice(lockedIndex, 1);
                 }
-                
+
                 particle.remove();
                 particles.splice(particles.indexOf(particle), 1);
             }
@@ -1055,13 +1164,13 @@ function keyReleased() {
 
 function resetParticles() {
     if (particles.length === 0) return;
-    
+
     // Make a copy of the particles array for processing
     let particlesCopy = [...particles];
-    
+
     // Filter out locked particles for determining the center
     let unlockParticles = particlesCopy.filter(p => !p.isLocked);
-    
+
     // If all particles are locked, nothing to do
     if (unlockParticles.length === 0) return;
     
@@ -1092,12 +1201,17 @@ function resetParticles() {
             toRemove.push(particle);
         }
     }
-    
+
+    // Play snip sound
+    if (soundManager && toRemove.length > 0) {
+        soundManager.cutButton();
+    }
+
     // Remove each particle from the physics world first
     for (let particle of toRemove) {
         particle.remove();
     }
-    
+
     // Then filter the particles array to remove these particles
     particles = particles.filter(p => !toRemove.includes(p));
 }
@@ -1119,14 +1233,26 @@ function mouseMoved() {
     }
     
     // Check for hover on each particle
+    let hoveredParticle = null;
     for (let particle of particles) {
         if (dist(mouseX, mouseY, particle.body.position.x, particle.body.position.y) < particle.size/2) {
             particle.isHovered = true;
             hovering = true;
+            hoveredParticle = particle;
             break; // Only hover one particle at a time
         }
     }
-    
+
+    // Play hover sound only when entering a NEW particle
+    if (hoveredParticle && hoveredParticle !== currentlyHoveredParticle) {
+        if (soundManager) {
+            soundManager.hoverParticle();
+        }
+    }
+
+    // Update currently hovered particle
+    currentlyHoveredParticle = hoveredParticle;
+
     // Change cursor based on hover state
     if (hovering) {
         cursor('pointer'); // Change cursor to pointer when hovering
@@ -1176,9 +1302,15 @@ function mouseDragged() {
                 }
             }
         }
-        
+
         // Update button states based on current selection
         updateButtonStates();
+
+        // Play sound based on selection count (trigger every 5 particles for variation)
+        if (soundManager && selectedParticles.length % 5 === 0 && selectedParticles.length > 0) {
+            soundManager.marqueeSelect(selectedParticles.length);
+        }
+
         return false;
     }
     return true;
@@ -1216,7 +1348,9 @@ function setupControls() {
     const lockBtn = document.getElementById('lockBtn');
     const clearBtn = document.getElementById('clearBtn');
     const helpBtn = document.getElementById('helpBtn');
-    
+    const muteBtn = document.getElementById('muteBtn');
+    const volumeSlider = document.getElementById('volumeSlider');
+
     // Initialize color picker with a random color
     const initialR = Math.floor(random(0, 255));
     const initialG = Math.floor(random(0, 255));
@@ -1231,7 +1365,12 @@ function setupControls() {
             isRandomColor = false;
             currentColor.classList.remove('rainbow-bg');
             currentColor.style.backgroundColor = `rgb(${currentPickedColor[0]}, ${currentPickedColor[1]}, ${currentPickedColor[2]})`;
-            
+
+            // Play sound (switching to custom mode)
+            if (soundManager) {
+                soundManager.colorPickerToggle(false);
+            }
+
             // Open the color picker
             colorPickerInput.click();
         } else {
@@ -1239,6 +1378,11 @@ function setupControls() {
             isRandomColor = true;
             currentColor.classList.add('rainbow-bg');
             currentColor.style.backgroundColor = '';
+
+            // Play sound (switching to random mode)
+            if (soundManager) {
+                soundManager.colorPickerToggle(true);
+            }
         }
     });
     
@@ -1268,17 +1412,27 @@ function setupControls() {
             shapeName = currentShape;
         }
         shapeSelectBtn.innerHTML = '<span class="material-symbols-outlined">' + shapeName + '</span>';
+
+        // Play sound
+        if (soundManager) {
+            soundManager.shapeSelect();
+        }
     });
     
     cutBtn.addEventListener('click', () => {
         if (selectedParticles.length > 0) {
+            // Play sound
+            if (soundManager) {
+                soundManager.cutButton();
+            }
+
             for (let particle of selectedParticles) {
                 // Also remove from lockedParticles if it was locked
                 const lockedIndex = lockedParticles.indexOf(particle);
                 if (lockedIndex !== -1) {
                     lockedParticles.splice(lockedIndex, 1);
                 }
-                
+
                 particle.remove();
                 particles.splice(particles.indexOf(particle), 1);
             }
@@ -1288,6 +1442,11 @@ function setupControls() {
     });
     
     clearBtn.addEventListener('click', () => {
+        // Play sound
+        if (soundManager) {
+            soundManager.clearButton();
+        }
+
         // Remove all particles (even if locked)
         for (let particle of particles) {
             particle.remove();
@@ -1300,14 +1459,22 @@ function setupControls() {
 
     lockBtn.addEventListener('click', () => {
         if (selectedParticles.length > 0) {
+            // Determine if we're locking or unlocking based on first particle
+            const isLocking = !selectedParticles[0].isLocked;
+
+            // Play sound
+            if (soundManager) {
+                soundManager.lockButton(isLocking);
+            }
+
             for (let particle of selectedParticles) {
                 if (!particle.isLocked) {
                     // Lock the particle
                     particle.isLocked = true;
-                    
+
                     // Make it static to remove gravity and physics effects
                     Matter.Body.setStatic(particle.body, true);
-                    
+
                     // Add to locked particles array if not already there
                     if (lockedParticles.indexOf(particle) === -1) {
                         lockedParticles.push(particle);
@@ -1315,10 +1482,10 @@ function setupControls() {
                 } else {
                     // Unlock the particle
                     particle.isLocked = false;
-                    
+
                     // Make it dynamic again
                     Matter.Body.setStatic(particle.body, false);
-                    
+
                     // Remove from locked particles array
                     const index = lockedParticles.indexOf(particle);
                     if (index !== -1) {
@@ -1340,11 +1507,22 @@ function setupControls() {
     helpBtn.addEventListener('click', () => {
         // Create modal container if it doesn't exist
         let helpModal = document.getElementById('helpModal');
-        
+
         if (helpModal) {
             // If modal exists already, just toggle its visibility
-            helpModal.style.display = helpModal.style.display === 'none' ? 'flex' : 'none';
+            const isOpening = helpModal.style.display === 'none';
+            helpModal.style.display = isOpening ? 'flex' : 'none';
+
+            // Play sound
+            if (soundManager) {
+                soundManager.helpButton(isOpening);
+            }
             return;
+        }
+
+        // Play sound (opening modal for first time)
+        if (soundManager) {
+            soundManager.helpButton(true);
         }
         
         // Create the modal
@@ -1475,12 +1653,22 @@ function setupControls() {
         // Close button functionality
         document.getElementById('closeHelpBtn').addEventListener('click', () => {
             helpModal.style.display = 'none';
+
+            // Play sound
+            if (soundManager) {
+                soundManager.helpButton(false);
+            }
         });
-        
+
         // Close when clicking outside the content
         helpModal.addEventListener('click', (event) => {
             if (event.target === helpModal) {
                 helpModal.style.display = 'none';
+
+                // Play sound
+                if (soundManager) {
+                    soundManager.helpButton(false);
+                }
             }
         });
         
@@ -1489,6 +1677,44 @@ function setupControls() {
             event.stopPropagation();
         });
     });
+
+    // Mute button event listener
+    muteBtn.addEventListener('click', () => {
+        if (soundManager) {
+            const isMuted = soundManager.toggleMute();
+            const icon = muteBtn.querySelector('.material-symbols-outlined');
+
+            if (isMuted) {
+                icon.textContent = 'volume_off';
+                muteBtn.classList.add('muted');
+            } else {
+                icon.textContent = 'volume_up';
+                muteBtn.classList.remove('muted');
+            }
+        }
+    });
+
+    // Volume slider event listener
+    volumeSlider.addEventListener('input', (event) => {
+        if (soundManager) {
+            const volume = parseInt(event.target.value) / 100; // Convert 0-100 to 0-1
+            soundManager.setVolume(volume);
+        }
+    });
+
+    // Initialize mute button state based on saved preferences
+    if (soundManager) {
+        const isMuted = soundManager.getMuted();
+        const icon = muteBtn.querySelector('.material-symbols-outlined');
+
+        if (isMuted) {
+            icon.textContent = 'volume_off';
+            muteBtn.classList.add('muted');
+        }
+
+        // Initialize volume slider value
+        volumeSlider.value = Math.round(soundManager.getVolume() * 100);
+    }
 }
 
 function toggleColorPicker() {
@@ -1712,7 +1938,12 @@ function splitParticle(particle) {
     
     // Number of smaller particles to create
     const numFragments = floor(random(4, 8));
-    
+
+    // Play particle split sound
+    if (soundManager) {
+        soundManager.particleSplit(numFragments);
+    }
+
     // Size reduction factor - particles will be 60% of original size
     const sizeReduction = 0.6;
     
@@ -1744,4 +1975,540 @@ function splitParticle(particle) {
     
     // Restore original base size
     baseSize = originalBaseSize;
+}
+
+// ============================================================================
+// SOUND MANAGER - Web Audio API Sound Effects System
+// ============================================================================
+
+class SoundManager {
+    constructor() {
+        this.audioContext = null;
+        this.masterGain = null;
+        this.isMuted = false;
+        this.volume = 0.7; // Default 70%
+        this.activeOscillators = 0;
+        this.maxOscillators = 30;
+
+        // Rate limiters (timestamps)
+        this.lastCollisionSound = 0;
+        this.lastHoverSound = 0;
+        this.lastWallBounceSound = 0;
+
+        // Rate limiting cooldowns (ms)
+        this.collisionCooldown = 50;
+        this.hoverCooldown = 200;
+        this.wallBounceCooldown = 100;
+
+        // Pentatonic scale frequencies (C major pentatonic)
+        this.scale = {
+            C4: 261.63,
+            D4: 293.66,
+            E4: 329.63,
+            G4: 392.00,
+            A4: 440.00,
+            C5: 523.25,
+            D5: 587.33,
+            E5: 659.25,
+            G5: 783.99,
+            A5: 880.00,
+            C6: 1046.50
+        };
+
+        this.init();
+    }
+
+    init() {
+        try {
+            // Create AudioContext (will be resumed on first user interaction)
+            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+            // Create master gain node
+            this.masterGain = this.audioContext.createGain();
+            this.masterGain.connect(this.audioContext.destination);
+            this.masterGain.gain.value = this.volume;
+
+            // Load saved preferences
+            this.loadPreferences();
+        } catch (error) {
+            console.warn('Web Audio API not supported:', error);
+        }
+    }
+
+    ensureAudioContext() {
+        // Resume AudioContext if suspended (autoplay policy)
+        if (this.audioContext && this.audioContext.state === 'suspended') {
+            this.audioContext.resume();
+        }
+    }
+
+    loadPreferences() {
+        const savedMute = localStorage.getItem('bubbleshop_muted');
+        const savedVolume = localStorage.getItem('bubbleshop_volume');
+
+        if (savedMute !== null) {
+            this.isMuted = savedMute === 'true';
+        }
+
+        if (savedVolume !== null) {
+            this.volume = parseFloat(savedVolume);
+            if (this.masterGain) {
+                this.masterGain.gain.value = this.isMuted ? 0 : this.volume;
+            }
+        }
+    }
+
+    savePreferences() {
+        localStorage.setItem('bubbleshop_muted', this.isMuted);
+        localStorage.setItem('bubbleshop_volume', this.volume);
+    }
+
+    // ========================================================================
+    // CORE INFRASTRUCTURE METHODS
+    // ========================================================================
+
+    playTone(frequency, duration, waveType = 'sine', envelope = {}, volume = 0.3) {
+        if (!this.audioContext || this.isMuted || this.activeOscillators >= this.maxOscillators) {
+            return null;
+        }
+
+        this.ensureAudioContext();
+        this.activeOscillators++;
+
+        const now = this.audioContext.currentTime;
+        const { attack = 0.04, decay = 0.1, sustain = 0.4, release = 0.3 } = envelope;
+
+        // Create oscillator
+        const osc = this.audioContext.createOscillator();
+        osc.type = waveType;
+        osc.frequency.value = frequency;
+
+        // Create gain for envelope
+        const gainNode = this.audioContext.createGain();
+        gainNode.gain.value = 0;
+
+        // ADSR Envelope
+        gainNode.gain.linearRampToValueAtTime(volume, now + attack);
+        gainNode.gain.linearRampToValueAtTime(volume * sustain, now + attack + decay);
+        gainNode.gain.linearRampToValueAtTime(0, now + attack + decay + duration + release);
+
+        // Connect nodes
+        osc.connect(gainNode);
+        gainNode.connect(this.masterGain);
+
+        // Start and stop
+        osc.start(now);
+        osc.stop(now + attack + decay + duration + release);
+
+        // Clean up
+        osc.onended = () => {
+            this.activeOscillators--;
+        };
+
+        return osc;
+    }
+
+    playArpeggio(frequencies, stagger = 0.03, waveType = 'sine', envelope = {}, volume = 0.25) {
+        frequencies.forEach((freq, index) => {
+            setTimeout(() => {
+                this.playTone(freq, 0.1, waveType, envelope, volume);
+            }, index * stagger * 1000);
+        });
+    }
+
+    playGlissando(startFreq, endFreq, duration, waveType = 'sine', volume = 0.3) {
+        if (!this.audioContext || this.isMuted || this.activeOscillators >= this.maxOscillators) {
+            return;
+        }
+
+        this.ensureAudioContext();
+        this.activeOscillators++;
+
+        const now = this.audioContext.currentTime;
+
+        const osc = this.audioContext.createOscillator();
+        osc.type = waveType;
+        osc.frequency.value = startFreq;
+        osc.frequency.exponentialRampToValueAtTime(endFreq, now + duration);
+
+        const gainNode = this.audioContext.createGain();
+        gainNode.gain.value = volume;
+        gainNode.gain.linearRampToValueAtTime(0, now + duration);
+
+        osc.connect(gainNode);
+        gainNode.connect(this.masterGain);
+
+        osc.start(now);
+        osc.stop(now + duration);
+
+        osc.onended = () => {
+            this.activeOscillators--;
+        };
+    }
+
+    playNoise(filterType, lowFreq, highFreq, duration, volume = 0.2) {
+        if (!this.audioContext || this.isMuted || this.activeOscillators >= this.maxOscillators) {
+            return;
+        }
+
+        this.ensureAudioContext();
+        this.activeOscillators++;
+
+        const now = this.audioContext.currentTime;
+        const bufferSize = this.audioContext.sampleRate * duration;
+        const buffer = this.audioContext.createBuffer(1, bufferSize, this.audioContext.sampleRate);
+        const data = buffer.getChannelData(0);
+
+        // Generate white noise
+        for (let i = 0; i < bufferSize; i++) {
+            data[i] = Math.random() * 2 - 1;
+        }
+
+        const noise = this.audioContext.createBufferSource();
+        noise.buffer = buffer;
+
+        const filter = this.audioContext.createBiquadFilter();
+        filter.type = filterType;
+        filter.frequency.value = (lowFreq + highFreq) / 2;
+        filter.Q.value = 1;
+
+        const gainNode = this.audioContext.createGain();
+        gainNode.gain.value = volume;
+        gainNode.gain.linearRampToValueAtTime(0, now + duration);
+
+        noise.connect(filter);
+        filter.connect(gainNode);
+        gainNode.connect(this.masterGain);
+
+        noise.start(now);
+
+        setTimeout(() => {
+            this.activeOscillators--;
+        }, duration * 1000);
+    }
+
+    // ========================================================================
+    // PARTICLE PHYSICS SOUNDS
+    // ========================================================================
+
+    particleCreate(count) {
+        this.ensureAudioContext();
+
+        // Ascending pentatonic arpeggio
+        const notes = [this.scale.C4, this.scale.D4, this.scale.E4, this.scale.G4, this.scale.A4, this.scale.C5, this.scale.D5, this.scale.E5];
+
+        // Limit to 8 notes max even if spawning 100 particles
+        const numNotes = Math.min(8, Math.ceil(count / 10));
+        const selectedNotes = notes.slice(0, numNotes);
+
+        // Adjust stagger based on count
+        const stagger = count > 40 ? 0.03 : 0.02;
+
+        this.playArpeggio(selectedNotes, stagger, 'sine', { attack: 0.04, release: 0.4 }, 0.2);
+    }
+
+    particleCollision(velocity, size1, size2) {
+        const now = Date.now();
+
+        // Rate limiting
+        if (now - this.lastCollisionSound < this.collisionCooldown) {
+            return;
+        }
+        this.lastCollisionSound = now;
+
+        this.ensureAudioContext();
+
+        // Base frequencies
+        let freq1 = this.scale.G4;
+        let freq2 = this.scale.C5;
+
+        // Velocity-based pitch variation (higher velocity = higher pitch)
+        const velocityMultiplier = constrain(map(velocity, 0, 15, 0.9, 1.3), 0.8, 1.5);
+
+        // Size-based pitch variation (larger = lower pitch)
+        const avgSize = (size1 + size2) / 2;
+        const sizeMultiplier = constrain(map(avgSize / baseSize, 0.75, 1.5, 1.2, 0.8), 0.7, 1.3);
+
+        freq1 *= velocityMultiplier * sizeMultiplier;
+        freq2 *= velocityMultiplier * sizeMultiplier;
+
+        // Volume based on velocity
+        const vol = constrain(map(velocity, 0, 15, 0.1, 0.4), 0.05, 0.4);
+
+        // Density-based volume reduction
+        const densityScale = constrain(map(particles.length, 0, maxParticles, 1.0, 0.3), 0.2, 1.0);
+
+        this.playTone(freq1, 0.05, 'sine', { attack: 0.02, release: 0.25 }, vol * densityScale);
+        setTimeout(() => {
+            this.playTone(freq2, 0.05, 'triangle', { attack: 0.02, release: 0.25 }, vol * densityScale * 0.6);
+        }, 20);
+    }
+
+    wallBounce(velocity) {
+        const now = Date.now();
+
+        if (now - this.lastWallBounceSound < this.wallBounceCooldown) {
+            return;
+        }
+        this.lastWallBounceSound = now;
+
+        this.ensureAudioContext();
+
+        // Low tone with velocity variation
+        const freq = this.scale.G4 * 0.5; // G3
+        const velocityMultiplier = constrain(map(velocity, 0, 15, 0.8, 1.2), 0.7, 1.3);
+
+        this.playTone(freq * velocityMultiplier, 0.1, 'triangle', { attack: 0.015, release: 0.3 }, 0.2);
+    }
+
+    acidConvert() {
+        this.ensureAudioContext();
+        // Sharp "fizz" sound using bandpass white noise
+        this.playNoise('bandpass', 800, 1200, 0.2, 0.15);
+    }
+
+    acidCorrosion() {
+        // Continuous subtle hiss - called periodically
+        // This would need to be managed differently (continuous tone)
+        // For now, play very brief hiss
+        this.ensureAudioContext();
+        this.playNoise('lowpass', 200, 400, 0.1, 0.03);
+    }
+
+    particleSplit(fragmentCount) {
+        this.ensureAudioContext();
+
+        // Rapid cluster of notes matching fragment count
+        const pentatonicPool = [this.scale.C5, this.scale.D5, this.scale.E5, this.scale.G5, this.scale.A5, this.scale.C6];
+        const notes = [];
+
+        for (let i = 0; i < fragmentCount; i++) {
+            notes.push(pentatonicPool[Math.floor(Math.random() * pentatonicPool.length)]);
+        }
+
+        this.playArpeggio(notes, 0.015, 'triangle', { attack: 0.01, release: 0.25 }, 0.2);
+    }
+
+    // ========================================================================
+    // UI BUTTON SOUNDS
+    // ========================================================================
+
+    colorPickerToggle(toRandom) {
+        this.ensureAudioContext();
+
+        if (toRandom) {
+            // Random mode: ascending C5 → E5
+            this.playTone(this.scale.C5, 0.05, 'triangle', { attack: 0.01, release: 0.12 }, 0.25);
+            setTimeout(() => {
+                this.playTone(this.scale.E5, 0.05, 'triangle', { attack: 0.01, release: 0.12 }, 0.25);
+            }, 100);
+        } else {
+            // Custom mode: descending E5 → C5
+            this.playTone(this.scale.E5, 0.05, 'triangle', { attack: 0.01, release: 0.12 }, 0.25);
+            setTimeout(() => {
+                this.playTone(this.scale.C5, 0.05, 'triangle', { attack: 0.01, release: 0.12 }, 0.25);
+            }, 100);
+        }
+    }
+
+    shapeSelect() {
+        this.ensureAudioContext();
+
+        // Cycle through C5 → D5 → E5
+        const shapeIndex = shapes.indexOf(currentShape);
+        const notes = [this.scale.C5, this.scale.D5, this.scale.E5];
+        const freq = notes[shapeIndex % 3];
+
+        this.playTone(freq, 0.06, 'triangle', { attack: 0.015, release: 0.15 }, 0.3);
+    }
+
+    cutButton() {
+        this.ensureAudioContext();
+
+        // Rapid descending glissando (600 Hz → 200 Hz, 80ms)
+        this.playGlissando(600, 200, 0.08, 'triangle', 0.25);
+    }
+
+    lockButton(isLocking) {
+        this.ensureAudioContext();
+
+        if (isLocking) {
+            // Locking: rising octave G4 → G5
+            this.playGlissando(this.scale.G4, this.scale.G5, 0.05, 'square', 0.2);
+        } else {
+            // Unlocking: falling octave G5 → G4
+            this.playGlissando(this.scale.G5, this.scale.G4, 0.05, 'square', 0.2);
+        }
+    }
+
+    clearButton() {
+        this.ensureAudioContext();
+
+        // Descending pentatonic scale
+        const notes = [this.scale.C5, this.scale.A4, this.scale.G4, this.scale.E4, this.scale.C4];
+        this.playArpeggio(notes, 0.06, 'sine', { attack: 0.02, release: 0.2 }, 0.25);
+    }
+
+    helpButton(isOpening) {
+        this.ensureAudioContext();
+
+        if (isOpening) {
+            // Open: ascending perfect fifth C5 → G5
+            this.playTone(this.scale.C5, 0.06, 'sine', { attack: 0.02, release: 0.18 }, 0.25);
+            setTimeout(() => {
+                this.playTone(this.scale.G5, 0.06, 'sine', { attack: 0.02, release: 0.18 }, 0.25);
+            }, 80);
+        } else {
+            // Close: descending perfect fifth G5 → C5
+            this.playTone(this.scale.G5, 0.06, 'sine', { attack: 0.02, release: 0.18 }, 0.25);
+            setTimeout(() => {
+                this.playTone(this.scale.C5, 0.06, 'sine', { attack: 0.02, release: 0.18 }, 0.25);
+            }, 80);
+        }
+    }
+
+    // ========================================================================
+    // SELECTION & GESTURE SOUNDS
+    // ========================================================================
+
+    selectParticle() {
+        this.ensureAudioContext();
+        this.playTone(this.scale.E5, 0.06, 'sine', { attack: 0.01, release: 0.08 }, 0.2);
+    }
+
+    deselectParticle() {
+        this.ensureAudioContext();
+        this.playTone(this.scale.C5, 0.06, 'sine', { attack: 0.01, release: 0.08 }, 0.2);
+    }
+
+    marqueeSelect(particleCount) {
+        this.ensureAudioContext();
+
+        // Play notes from pentatonic scale based on count
+        let freq;
+        if (particleCount <= 5) freq = this.scale.C5;
+        else if (particleCount <= 10) freq = this.scale.D5;
+        else if (particleCount <= 20) freq = this.scale.E5;
+        else if (particleCount <= 40) freq = this.scale.G5;
+        else freq = this.scale.A5;
+
+        this.playTone(freq, 0.05, 'sine', { attack: 0.015, release: 0.15 }, 0.15);
+    }
+
+    hoverParticle() {
+        const now = Date.now();
+
+        if (now - this.lastHoverSound < this.hoverCooldown) {
+            return;
+        }
+        this.lastHoverSound = now;
+
+        this.ensureAudioContext();
+        this.playTone(this.scale.C6, 0.03, 'sine', { attack: 0.01, release: 0.1 }, 0.1);
+    }
+
+    longPressSelect() {
+        this.ensureAudioContext();
+
+        // Rising glissando C4 → C5 over 500ms
+        this.playGlissando(this.scale.C4, this.scale.C5, 0.5, 'sine', 0.2);
+    }
+
+    twoFingerTap() {
+        this.ensureAudioContext();
+
+        // Descending sweep 800 Hz → 200 Hz
+        this.playGlissando(800, 200, 0.3, 'sine', 0.25);
+    }
+
+    threeFingerTap() {
+        this.ensureAudioContext();
+
+        // Wide descending glissando 1200 Hz → 100 Hz
+        this.playGlissando(1200, 100, 0.5, 'triangle', 0.3);
+    }
+
+    deleteParticles(count = 1) {
+        this.ensureAudioContext();
+
+        // Sucking/vacuum sound - descending sweep with filtered noise
+        // Duration and intensity based on particle count
+        const duration = Math.min(0.15 + (count * 0.01), 0.4); // 150ms-400ms
+        const volume = Math.min(0.15 + (count * 0.005), 0.35); // Scale with count
+
+        // Descending pitch sweep for suction effect
+        this.playGlissando(600, 150, duration, 'sine', volume * 0.7);
+
+        // Add filtered noise for texture
+        if (this.audioContext && !this.isMuted && this.activeOscillators < this.maxOscillators) {
+            this.activeOscillators++;
+
+            const now = this.audioContext.currentTime;
+            const bufferSize = this.audioContext.sampleRate * duration;
+            const buffer = this.audioContext.createBuffer(1, bufferSize, this.audioContext.sampleRate);
+            const data = buffer.getChannelData(0);
+
+            // Generate white noise
+            for (let i = 0; i < bufferSize; i++) {
+                data[i] = Math.random() * 2 - 1;
+            }
+
+            const noise = this.audioContext.createBufferSource();
+            noise.buffer = buffer;
+
+            // Bandpass filter that sweeps down
+            const filter = this.audioContext.createBiquadFilter();
+            filter.type = 'bandpass';
+            filter.frequency.value = 800;
+            filter.frequency.exponentialRampToValueAtTime(200, now + duration);
+            filter.Q.value = 2;
+
+            const gainNode = this.audioContext.createGain();
+            gainNode.gain.value = volume * 0.4;
+            gainNode.gain.linearRampToValueAtTime(0, now + duration);
+
+            noise.connect(filter);
+            filter.connect(gainNode);
+            gainNode.connect(this.masterGain);
+
+            noise.start(now);
+
+            setTimeout(() => {
+                this.activeOscillators--;
+            }, duration * 1000);
+        }
+    }
+
+    // ========================================================================
+    // VOLUME & MUTE CONTROLS
+    // ========================================================================
+
+    setVolume(value) {
+        this.volume = constrain(value, 0, 1);
+
+        if (this.masterGain && !this.isMuted) {
+            this.masterGain.gain.value = this.volume;
+        }
+
+        this.savePreferences();
+    }
+
+    toggleMute() {
+        this.isMuted = !this.isMuted;
+
+        if (this.masterGain) {
+            this.masterGain.gain.value = this.isMuted ? 0 : this.volume;
+        }
+
+        this.savePreferences();
+        return this.isMuted;
+    }
+
+    getMuted() {
+        return this.isMuted;
+    }
+
+    getVolume() {
+        return this.volume;
+    }
 }

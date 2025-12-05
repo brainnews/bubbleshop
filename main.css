@@ -84,6 +84,60 @@ canvas {
     opacity: 0.5;
     pointer-events: none;
 }
+
+/* Mute button styling */
+button.toolbar-btn.muted {
+    background-color: rgba(255, 100, 100, 0.5);
+}
+
+/* Volume control styling */
+.volume-control {
+    display: flex;
+    align-items: center;
+    padding: 0 5px;
+}
+
+.volume-slider {
+    width: 80px;
+    height: 6px;
+    border-radius: 5px;
+    background: linear-gradient(to right, rgba(255, 200, 100, 0.3), rgba(255, 200, 100, 0.8));
+    outline: none;
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+.volume-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: rgba(255, 200, 100, 1);
+    cursor: pointer;
+    box-shadow: 0 0 4px rgba(0, 0, 0, 0.3);
+    transition: transform 0.1s ease;
+}
+
+.volume-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.2);
+}
+
+.volume-slider::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: rgba(255, 200, 100, 1);
+    cursor: pointer;
+    box-shadow: 0 0 4px rgba(0, 0, 0, 0.3);
+    border: none;
+    transition: transform 0.1s ease;
+}
+
+.volume-slider::-moz-range-thumb:hover {
+    transform: scale(1.2);
+}
+
 .rainbow-bg {
     background: 
     radial-gradient(circle at 30% 30%, #ffb74d, transparent 50%),
