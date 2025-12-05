@@ -2164,7 +2164,7 @@ class SoundManager {
         const vol = constrain(map(velocity, 0, 15, 0.1, 0.4), 0.05, 0.4);
 
         // Density-based volume reduction
-        const densityScale = constrain(map(particles.length, 0, maxParticles, 1.0, 0.3), 0.2, 1.0);
+        const densityScale = constrain(map(particles.length, 0, MAX_PARTICLES, 1.0, 0.3), 0.2, 1.0);
 
         this.playTone(freq1, 0.05, 'sine', { attack: 0.02, release: 0.25 }, vol * densityScale);
         setTimeout(() => {
