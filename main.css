@@ -138,6 +138,80 @@ button.toolbar-btn.muted {
     transform: scale(1.2);
 }
 
+/* Sound pack selector styling */
+.soundpack-control {
+    display: flex;
+    align-items: center;
+    padding: 0 5px;
+}
+
+.soundpack-select {
+    width: 110px;
+    height: 32px;
+    padding: 4px 8px;
+    border: 1px solid rgba(255, 200, 100, 0.5);
+    border-radius: 8px;
+    background: linear-gradient(to bottom, rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.6));
+    color: rgb(43, 41, 44);
+    font-family: 'Xanh Mono', monospace;
+    font-size: 13px;
+    cursor: pointer;
+    outline: none;
+    transition: all 0.15s ease;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+
+    /* Custom dropdown arrow using background gradient */
+    background-image:
+        linear-gradient(45deg, transparent 50%, rgba(43, 41, 44, 0.7) 50%),
+        linear-gradient(135deg, rgba(43, 41, 44, 0.7) 50%, transparent 50%),
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.6));
+    background-position:
+        calc(100% - 12px) calc(1em + 2px),
+        calc(100% - 8px) calc(1em + 2px),
+        0 0;
+    background-size:
+        4px 4px,
+        4px 4px,
+        100% 100%;
+    background-repeat: no-repeat;
+    padding-right: 24px;
+}
+
+.soundpack-select:hover {
+    background-color: rgba(255, 255, 255, 0.95);
+    border-color: rgba(255, 200, 100, 0.8);
+    box-shadow: 0 2px 8px rgba(255, 200, 100, 0.3);
+}
+
+.soundpack-select:focus {
+    border-color: #ffc864;
+    box-shadow: 0 0 0 2px rgba(255, 200, 100, 0.3);
+}
+
+.soundpack-select option {
+    background-color: white;
+    color: rgb(43, 41, 44);
+    padding: 6px 10px;
+}
+
+/* Mobile adjustments */
+@media (max-width: 768px) {
+    .soundpack-select {
+        width: 95px;
+        font-size: 12px;
+        height: 36px;
+    }
+}
+
+@media (max-width: 480px) {
+    .soundpack-select {
+        width: 85px;
+        font-size: 11px;
+    }
+}
+
 .rainbow-bg {
     background: 
     radial-gradient(circle at 30% 30%, #ffb74d, transparent 50%),

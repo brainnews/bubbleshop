@@ -266,8 +266,11 @@ function setup() {
     setupPhysics();
     initializeUI();
 
-    // Initialize sound manager
-    soundManager = new SoundManager();
+    // Initialize sound pack system
+    soundManager = new SoundPackManager();
+    soundManager.registerPack('original', OriginalSoundPack);
+    soundManager.registerPack('retro8bit', Retro8BitSoundPack);
+    soundManager.loadSavedPack();
 
     // Create and cache the background
     createBackgroundBuffer();
@@ -1609,6 +1612,27 @@ function setupControls() {
         }
     });
 
+    // Sound pack selector
+    const soundPackSelect = document.getElementById('soundPackSelect');
+    if (soundPackSelect) {
+        // Load saved pack selection
+        const savedPack = localStorage.getItem('bubbleshop_soundpack') || 'original';
+        soundPackSelect.value = savedPack;
+
+        // Handle pack changes
+        soundPackSelect.addEventListener('change', (e) => {
+            const packId = e.target.value;
+            if (soundManager) {
+                soundManager.switchPack(packId);
+
+                // Optional: Play preview sound using new pack
+                setTimeout(() => {
+                    soundManager.shapeSelect();
+                }, 100);
+            }
+        });
+    }
+
     // Initialize mute button state based on saved preferences
     if (soundManager) {
         const isMuted = soundManager.getMuted();
@@ -1909,7 +1933,13 @@ function splitParticle(particle) {
 // SOUND MANAGER - Web Audio API Sound Effects System
 // ============================================================================
 
-class SoundManager {
+/**
+ * BaseSoundPack - Abstract base class defining the sound pack contract
+ *
+ * All sound packs must extend this class and implement all 21 required sound methods.
+ * Provides shared infrastructure for Web Audio API, rate limiting, and volume/mute controls.
+ */
+class BaseSoundPack {
     constructor() {
         this.audioContext = null;
         this.masterGain = null;
@@ -1927,6 +1957,207 @@ class SoundManager {
         this.collisionCooldown = 50;
         this.hoverCooldown = 200;
         this.wallBounceCooldown = 100;
+    }
+
+    /**
+     * Initialize Web Audio API context and master gain
+     */
+    init() {
+        try {
+            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            this.masterGain = this.audioContext.createGain();
+            this.masterGain.connect(this.audioContext.destination);
+            this.masterGain.gain.value = this.volume;
+            this.loadPreferences();
+        } catch (error) {
+            console.warn('Web Audio API not supported:', error);
+        }
+    }
+
+    /**
+     * Resume AudioContext if suspended (autoplay policy)
+     */
+    ensureAudioContext() {
+        if (this.audioContext && this.audioContext.state === 'suspended') {
+            this.audioContext.resume();
+        }
+    }
+
+    /**
+     * Load saved volume/mute preferences from localStorage
+     */
+    loadPreferences() {
+        const savedMute = localStorage.getItem('bubbleshop_muted');
+        const savedVolume = localStorage.getItem('bubbleshop_volume');
+
+        if (savedMute !== null) {
+            this.isMuted = savedMute === 'true';
+        }
+
+        if (savedVolume !== null) {
+            this.volume = parseFloat(savedVolume);
+            if (this.masterGain) {
+                this.masterGain.gain.value = this.isMuted ? 0 : this.volume;
+            }
+        }
+    }
+
+    /**
+     * Save volume/mute preferences to localStorage
+     */
+    savePreferences() {
+        localStorage.setItem('bubbleshop_muted', this.isMuted);
+        localStorage.setItem('bubbleshop_volume', this.volume);
+    }
+
+    // ========================================================================
+    // REQUIRED: PARTICLE PHYSICS SOUNDS (6 methods)
+    // Subclasses must implement all of these
+    // ========================================================================
+
+    particleCreate(count) {
+        throw new Error('Must implement particleCreate()');
+    }
+
+    particleCollision(velocity, size1, size2) {
+        throw new Error('Must implement particleCollision()');
+    }
+
+    wallBounce(velocity) {
+        throw new Error('Must implement wallBounce()');
+    }
+
+    acidConvert() {
+        throw new Error('Must implement acidConvert()');
+    }
+
+    acidCorrosion() {
+        throw new Error('Must implement acidCorrosion()');
+    }
+
+    particleSplit(fragmentCount) {
+        throw new Error('Must implement particleSplit()');
+    }
+
+    // ========================================================================
+    // REQUIRED: UI BUTTON SOUNDS (6 methods)
+    // ========================================================================
+
+    colorPickerToggle(toRandom) {
+        throw new Error('Must implement colorPickerToggle()');
+    }
+
+    shapeSelect() {
+        throw new Error('Must implement shapeSelect()');
+    }
+
+    cutButton() {
+        throw new Error('Must implement cutButton()');
+    }
+
+    lockButton(isLocking) {
+        throw new Error('Must implement lockButton()');
+    }
+
+    clearButton() {
+        throw new Error('Must implement clearButton()');
+    }
+
+    helpButton(isOpening) {
+        throw new Error('Must implement helpButton()');
+    }
+
+    // ========================================================================
+    // REQUIRED: SELECTION & GESTURE SOUNDS (8 methods)
+    // ========================================================================
+
+    selectParticle() {
+        throw new Error('Must implement selectParticle()');
+    }
+
+    deselectParticle() {
+        throw new Error('Must implement deselectParticle()');
+    }
+
+    marqueeSelect(particleCount) {
+        throw new Error('Must implement marqueeSelect()');
+    }
+
+    hoverParticle() {
+        throw new Error('Must implement hoverParticle()');
+    }
+
+    longPressSelect() {
+        throw new Error('Must implement longPressSelect()');
+    }
+
+    twoFingerTap() {
+        throw new Error('Must implement twoFingerTap()');
+    }
+
+    threeFingerTap() {
+        throw new Error('Must implement threeFingerTap()');
+    }
+
+    deleteParticles(count = 1) {
+        throw new Error('Must implement deleteParticles()');
+    }
+
+    // ========================================================================
+    // VOLUME/MUTE CONTROLS (Shared implementation)
+    // ========================================================================
+
+    /**
+     * Set master volume (0-1)
+     * @param {number} value - Volume level between 0 and 1
+     */
+    setVolume(value) {
+        this.volume = constrain(value, 0, 1);
+        if (this.masterGain && !this.isMuted) {
+            this.masterGain.gain.value = this.volume;
+        }
+        this.savePreferences();
+    }
+
+    /**
+     * Toggle mute state
+     * @returns {boolean} New mute state
+     */
+    toggleMute() {
+        this.isMuted = !this.isMuted;
+        if (this.masterGain) {
+            this.masterGain.gain.value = this.isMuted ? 0 : this.volume;
+        }
+        this.savePreferences();
+        return this.isMuted;
+    }
+
+    /**
+     * Get current mute state
+     * @returns {boolean} True if muted
+     */
+    getMuted() {
+        return this.isMuted;
+    }
+
+    /**
+     * Get current volume level
+     * @returns {number} Volume between 0 and 1
+     */
+    getVolume() {
+        return this.volume;
+    }
+}
+
+/**
+ * OriginalSoundPack - The original Bubbleshop sound effects
+ *
+ * Uses C major pentatonic scale with smooth synthesized tones.
+ * This was the original SoundManager refactored as a sound pack.
+ */
+class OriginalSoundPack extends BaseSoundPack {
+    constructor() {
+        super();
 
         // Pentatonic scale frequencies (C major pentatonic)
         this.scale = {
@@ -2438,5 +2669,496 @@ class SoundManager {
 
     getVolume() {
         return this.volume;
+    }
+}
+
+/**
+ * Retro8BitSoundPack - 8-bit video game style sound effects
+ *
+ * Uses chromatic scale with square/pulse waves for classic chiptune aesthetic.
+ * Inspired by NES/Game Boy era sound design with sharp envelopes and short durations.
+ */
+class Retro8BitSoundPack extends BaseSoundPack {
+    constructor() {
+        super();
+
+        // Chromatic scale (12-TET) for 8-bit aesthetic
+        this.scale = {
+            C4: 261.63, Cs4: 277.18, D4: 293.66, Ds4: 311.13,
+            E4: 329.63, F4: 349.23, Fs4: 369.99, G4: 392.00,
+            Gs4: 415.30, A4: 440.00, As4: 466.16, B4: 493.88,
+            C5: 523.25, Cs5: 554.37, D5: 587.33, Ds5: 622.25,
+            E5: 659.25, F5: 698.46, Fs5: 739.99, G5: 783.99,
+            Gs5: 830.61, A5: 880.00, As5: 932.33, B5: 987.77,
+            C6: 1046.50
+        };
+
+        this.init();
+    }
+
+    /**
+     * Play a square wave tone with configurable duty cycle
+     * @param {number} freq - Frequency in Hz
+     * @param {number} duration - Duration in seconds
+     * @param {number} dutyCycle - Duty cycle (0.5 = 50%, 0.25 = 25%)
+     * @param {number} volume - Volume (0-1)
+     */
+    playSquareWave(freq, duration, dutyCycle = 0.5, volume = 0.3) {
+        if (!this.audioContext || this.isMuted || this.activeOscillators >= this.maxOscillators) {
+            return;
+        }
+
+        this.ensureAudioContext();
+        this.activeOscillators++;
+
+        const now = this.audioContext.currentTime;
+
+        // Use square wave for 8-bit sound
+        const osc = this.audioContext.createOscillator();
+        osc.type = 'square';
+        osc.frequency.value = freq;
+
+        const gainNode = this.audioContext.createGain();
+        gainNode.gain.value = 0;
+
+        // Sharp attack/release for 8-bit character
+        gainNode.gain.linearRampToValueAtTime(volume * this.volume, now + 0.01);
+        gainNode.gain.linearRampToValueAtTime(0, now + duration);
+
+        osc.connect(gainNode);
+        gainNode.connect(this.masterGain);
+
+        osc.start(now);
+        osc.stop(now + duration);
+
+        osc.onended = () => {
+            this.activeOscillators--;
+        };
+    }
+
+    /**
+     * Play arpeggio of square waves
+     * @param {Array} frequencies - Array of frequencies
+     * @param {number} stagger - Delay between notes in seconds
+     */
+    playPulseArpeggio(frequencies, stagger = 0.05) {
+        frequencies.forEach((freq, i) => {
+            setTimeout(() => {
+                this.playSquareWave(freq, 0.08, 0.5, 0.25);
+            }, i * stagger * 1000);
+        });
+    }
+
+    // ========================================================================
+    // PARTICLE PHYSICS SOUNDS (6 methods)
+    // ========================================================================
+
+    particleCreate(count) {
+        this.ensureAudioContext();
+
+        // 8-bit ascending chromatic run
+        const notes = [this.scale.C4, this.scale.E4, this.scale.G4, this.scale.C5];
+        const numNotes = Math.min(4, Math.ceil(count / 15));
+
+        this.playPulseArpeggio(notes.slice(0, numNotes), 0.05);
+    }
+
+    particleCollision(velocity, size1, size2) {
+        const now = Date.now();
+        if (now - this.lastCollisionSound < this.collisionCooldown) return;
+        this.lastCollisionSound = now;
+
+        this.ensureAudioContext();
+
+        // Quick "blip" sound - higher velocity = higher pitch
+        const baseFreq = this.scale.C5;
+        const velocityMultiplier = constrain(map(velocity, 0, 15, 0.8, 1.5), 0.7, 1.7);
+        const volume = constrain(map(velocity, 0, 15, 0.1, 0.3), 0.1, 0.3);
+
+        this.playSquareWave(baseFreq * velocityMultiplier, 0.04, 0.25, volume);
+    }
+
+    wallBounce(velocity) {
+        const now = Date.now();
+        if (now - this.lastWallBounceSound < this.wallBounceCooldown) return;
+        this.lastWallBounceSound = now;
+
+        this.ensureAudioContext();
+
+        // Low "thud" with quick pitch drop
+        this.playSquareWave(this.scale.C4, 0.12, 0.5, 0.25);
+    }
+
+    acidConvert() {
+        this.ensureAudioContext();
+
+        // Sharp high-pitched beep for acid conversion
+        this.playSquareWave(this.scale.C6, 0.15, 0.25, 0.2);
+        setTimeout(() => {
+            this.playSquareWave(this.scale.G5, 0.15, 0.25, 0.15);
+        }, 80);
+    }
+
+    acidCorrosion() {
+        this.ensureAudioContext();
+
+        // Subtle low frequency pulse
+        this.playSquareWave(this.scale.C4, 0.08, 0.5, 0.05);
+    }
+
+    particleSplit(fragmentCount) {
+        this.ensureAudioContext();
+
+        // Rapid cluster of notes matching fragment count
+        const notes = [this.scale.C5, this.scale.E5, this.scale.G5, this.scale.C6];
+        const numNotes = Math.min(fragmentCount, 8);
+
+        for (let i = 0; i < numNotes; i++) {
+            const freq = notes[Math.floor(Math.random() * notes.length)];
+            setTimeout(() => {
+                this.playSquareWave(freq, 0.06, 0.25, 0.2);
+            }, i * 15);
+        }
+    }
+
+    // ========================================================================
+    // UI BUTTON SOUNDS (6 methods)
+    // ========================================================================
+
+    colorPickerToggle(toRandom) {
+        this.ensureAudioContext();
+
+        if (toRandom) {
+            // Ascending beep for random mode
+            this.playSquareWave(this.scale.C5, 0.08, 0.5, 0.25);
+            setTimeout(() => {
+                this.playSquareWave(this.scale.E5, 0.08, 0.5, 0.25);
+            }, 100);
+        } else {
+            // Descending beep for custom mode
+            this.playSquareWave(this.scale.E5, 0.08, 0.5, 0.25);
+            setTimeout(() => {
+                this.playSquareWave(this.scale.C5, 0.08, 0.5, 0.25);
+            }, 100);
+        }
+    }
+
+    shapeSelect() {
+        this.ensureAudioContext();
+
+        // Quick blip that cycles through pitches
+        const notes = [this.scale.C5, this.scale.D5, this.scale.E5];
+        const freq = notes[Math.floor(Math.random() * notes.length)];
+        this.playSquareWave(freq, 0.06, 0.5, 0.25);
+    }
+
+    cutButton() {
+        this.ensureAudioContext();
+
+        // Descending chromatic scale for "cut"
+        const notes = [this.scale.E5, this.scale.D5, this.scale.C5];
+        notes.forEach((freq, i) => {
+            setTimeout(() => {
+                this.playSquareWave(freq, 0.05, 0.5, 0.2);
+            }, i * 30);
+        });
+    }
+
+    lockButton(isLocking) {
+        this.ensureAudioContext();
+
+        if (isLocking) {
+            // Rising pitch for lock
+            this.playSquareWave(this.scale.G4, 0.08, 0.5, 0.2);
+            setTimeout(() => {
+                this.playSquareWave(this.scale.C5, 0.08, 0.5, 0.2);
+            }, 60);
+        } else {
+            // Falling pitch for unlock
+            this.playSquareWave(this.scale.C5, 0.08, 0.5, 0.2);
+            setTimeout(() => {
+                this.playSquareWave(this.scale.G4, 0.08, 0.5, 0.2);
+            }, 60);
+        }
+    }
+
+    clearButton() {
+        this.ensureAudioContext();
+
+        // Descending arpeggio
+        const notes = [this.scale.C5, this.scale.A4, this.scale.G4, this.scale.E4, this.scale.C4];
+        this.playPulseArpeggio(notes, 0.06);
+    }
+
+    helpButton(isOpening) {
+        this.ensureAudioContext();
+
+        if (isOpening) {
+            // Perfect fifth up
+            this.playSquareWave(this.scale.C5, 0.08, 0.5, 0.25);
+            setTimeout(() => {
+                this.playSquareWave(this.scale.G5, 0.08, 0.5, 0.25);
+            }, 80);
+        } else {
+            // Perfect fifth down
+            this.playSquareWave(this.scale.G5, 0.08, 0.5, 0.25);
+            setTimeout(() => {
+                this.playSquareWave(this.scale.C5, 0.08, 0.5, 0.25);
+            }, 80);
+        }
+    }
+
+    // ========================================================================
+    // SELECTION & GESTURE SOUNDS (8 methods)
+    // ========================================================================
+
+    selectParticle() {
+        this.ensureAudioContext();
+
+        // High pitched blip
+        this.playSquareWave(this.scale.E5, 0.06, 0.5, 0.2);
+    }
+
+    deselectParticle() {
+        this.ensureAudioContext();
+
+        // Lower pitched blip
+        this.playSquareWave(this.scale.C5, 0.06, 0.5, 0.2);
+    }
+
+    marqueeSelect(particleCount) {
+        this.ensureAudioContext();
+
+        // Context-aware pitch based on particle count
+        let freq;
+        if (particleCount <= 5) freq = this.scale.C5;
+        else if (particleCount <= 10) freq = this.scale.D5;
+        else if (particleCount <= 20) freq = this.scale.E5;
+        else if (particleCount <= 40) freq = this.scale.G5;
+        else freq = this.scale.A5;
+
+        this.playSquareWave(freq, 0.08, 0.5, 0.25);
+    }
+
+    hoverParticle() {
+        const now = Date.now();
+        if (now - this.lastHoverSound < this.hoverCooldown) return;
+        this.lastHoverSound = now;
+
+        this.ensureAudioContext();
+
+        // Very high, short blip
+        this.playSquareWave(this.scale.C6, 0.03, 0.25, 0.1);
+    }
+
+    longPressSelect() {
+        this.ensureAudioContext();
+
+        // Rising chromatic scale
+        const notes = [this.scale.C4, this.scale.E4, this.scale.G4, this.scale.C5];
+        this.playPulseArpeggio(notes, 0.12);
+    }
+
+    twoFingerTap() {
+        this.ensureAudioContext();
+
+        // Quick descending blip
+        this.playSquareWave(this.scale.G5, 0.06, 0.25, 0.25);
+        setTimeout(() => {
+            this.playSquareWave(this.scale.C5, 0.06, 0.25, 0.25);
+        }, 50);
+    }
+
+    threeFingerTap() {
+        this.ensureAudioContext();
+
+        // Wider descending pattern
+        const notes = [this.scale.C6, this.scale.G5, this.scale.C5];
+        this.playPulseArpeggio(notes, 0.08);
+    }
+
+    deleteParticles(count = 1) {
+        this.ensureAudioContext();
+
+        // Descending arpeggio - duration based on count
+        const numNotes = Math.min(Math.ceil(count / 5), 5);
+        const notes = [this.scale.E5, this.scale.D5, this.scale.C5, this.scale.G4, this.scale.C4];
+
+        this.playPulseArpeggio(notes.slice(0, numNotes), 0.05);
+    }
+}
+
+/**
+ * SoundPackManager - Facade for managing and switching between sound packs
+ *
+ * Maintains backward compatibility by delegating all sound method calls to the
+ * currently active sound pack. Handles pack registration, switching, and state
+ * preservation (volume/mute) across pack changes.
+ */
+class SoundPackManager {
+    constructor() {
+        this.packs = {};           // Registry: { 'original': OriginalSoundPack, ... }
+        this.currentPack = null;    // Active pack instance
+        this.currentPackId = 'original';
+    }
+
+    /**
+     * Register a sound pack class
+     * @param {string} id - Unique identifier for the pack
+     * @param {class} packClass - Sound pack class (must extend BaseSoundPack)
+     */
+    registerPack(id, packClass) {
+        this.packs[id] = packClass;
+    }
+
+    /**
+     * Switch to a different sound pack
+     * @param {string} packId - ID of the pack to switch to
+     */
+    switchPack(packId) {
+        // Validate pack exists
+        if (!this.packs[packId]) {
+            console.warn(`Sound pack "${packId}" not found. Using original.`);
+            packId = 'original';
+        }
+
+        // Preserve volume/mute state from current pack
+        const preservedVolume = this.currentPack ? this.currentPack.volume : 0.7;
+        const preservedMute = this.currentPack ? this.currentPack.isMuted : false;
+
+        // Instantiate new pack
+        this.currentPack = new this.packs[packId]();
+
+        // Apply preserved volume/mute
+        this.currentPack.volume = preservedVolume;
+        this.currentPack.isMuted = preservedMute;
+        if (this.currentPack.masterGain) {
+            this.currentPack.masterGain.gain.value = preservedMute ? 0 : preservedVolume;
+        }
+
+        this.currentPackId = packId;
+
+        // Save to localStorage
+        localStorage.setItem('bubbleshop_soundpack', packId);
+    }
+
+    /**
+     * Load saved sound pack preference from localStorage
+     */
+    loadSavedPack() {
+        const savedPack = localStorage.getItem('bubbleshop_soundpack') || 'original';
+        this.switchPack(savedPack);
+    }
+
+    // ========================================================================
+    // DELEGATED METHODS - Particle Physics Sounds (6)
+    // ========================================================================
+
+    particleCreate(count) {
+        if (this.currentPack) this.currentPack.particleCreate(count);
+    }
+
+    particleCollision(velocity, size1, size2) {
+        if (this.currentPack) this.currentPack.particleCollision(velocity, size1, size2);
+    }
+
+    wallBounce(velocity) {
+        if (this.currentPack) this.currentPack.wallBounce(velocity);
+    }
+
+    acidConvert() {
+        if (this.currentPack) this.currentPack.acidConvert();
+    }
+
+    acidCorrosion() {
+        if (this.currentPack) this.currentPack.acidCorrosion();
+    }
+
+    particleSplit(fragmentCount) {
+        if (this.currentPack) this.currentPack.particleSplit(fragmentCount);
+    }
+
+    // ========================================================================
+    // DELEGATED METHODS - UI Button Sounds (6)
+    // ========================================================================
+
+    colorPickerToggle(toRandom) {
+        if (this.currentPack) this.currentPack.colorPickerToggle(toRandom);
+    }
+
+    shapeSelect() {
+        if (this.currentPack) this.currentPack.shapeSelect();
+    }
+
+    cutButton() {
+        if (this.currentPack) this.currentPack.cutButton();
+    }
+
+    lockButton(isLocking) {
+        if (this.currentPack) this.currentPack.lockButton(isLocking);
+    }
+
+    clearButton() {
+        if (this.currentPack) this.currentPack.clearButton();
+    }
+
+    helpButton(isOpening) {
+        if (this.currentPack) this.currentPack.helpButton(isOpening);
+    }
+
+    // ========================================================================
+    // DELEGATED METHODS - Selection & Gesture Sounds (8)
+    // ========================================================================
+
+    selectParticle() {
+        if (this.currentPack) this.currentPack.selectParticle();
+    }
+
+    deselectParticle() {
+        if (this.currentPack) this.currentPack.deselectParticle();
+    }
+
+    marqueeSelect(particleCount) {
+        if (this.currentPack) this.currentPack.marqueeSelect(particleCount);
+    }
+
+    hoverParticle() {
+        if (this.currentPack) this.currentPack.hoverParticle();
+    }
+
+    longPressSelect() {
+        if (this.currentPack) this.currentPack.longPressSelect();
+    }
+
+    twoFingerTap() {
+        if (this.currentPack) this.currentPack.twoFingerTap();
+    }
+
+    threeFingerTap() {
+        if (this.currentPack) this.currentPack.threeFingerTap();
+    }
+
+    deleteParticles(count = 1) {
+        if (this.currentPack) this.currentPack.deleteParticles(count);
+    }
+
+    // ========================================================================
+    // DELEGATED METHODS - Volume Controls (4)
+    // ========================================================================
+
+    setVolume(value) {
+        if (this.currentPack) this.currentPack.setVolume(value);
+    }
+
+    toggleMute() {
+        return this.currentPack ? this.currentPack.toggleMute() : false;
+    }
+
+    getMuted() {
+        return this.currentPack ? this.currentPack.getMuted() : false;
+    }
+
+    getVolume() {
+        return this.currentPack ? this.currentPack.getVolume() : 0.7;
     }
 }
