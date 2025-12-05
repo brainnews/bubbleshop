@@ -1,15 +1,56 @@
+// ===== CONFIGURATION CONSTANTS =====
+const LONG_PRESS_DURATION = 500; // ms
+const ACID_EFFECT_INTERVAL = 100; // ms between acid effects
+const ACID_DECAY_INTERVAL = 100; // ms between acid particle shrink updates
+const ACID_STRENGTH = 0.1; // Percentage of size reduction per acid touch
+const ACID_DECAY_RATE = 0.025; // Rate at which acid particles shrink
+const MIN_PARTICLE_SIZE = 5; // Minimum size before particle is removed
+const PARTICLE_COUNT_UPDATE_INTERVAL = 10; // frames between particle count updates
+
+// Physics constants
+const PHYSICS_GRAVITY = 0.5;
+const PHYSICS_FRICTION = 0.3;
+const PHYSICS_RESTITUTION = 0.4;
+const PHYSICS_DENSITY = 0.001;
+const PHYSICS_PADDING = 2.5;
+
+// Initial velocity ranges
+const INITIAL_VELOCITY_X_MIN = -5;
+const INITIAL_VELOCITY_X_MAX = 5;
+const INITIAL_VELOCITY_Y_MIN = -5;
+const INITIAL_VELOCITY_Y_MAX = 0;
+
+// Particle spawn settings
+const DEFAULT_SPAWN_COUNT = 37;
+const MIN_SPAWN_COUNT = 10;
+const MAX_SPAWN_COUNT = 100;
+const SPAWN_COUNT_WHEEL_DELTA = 7;
+const MAX_PARTICLES = 1000;
+
+// Size multipliers
+const BASE_SIZE_MULTIPLIER = 0.04; // Relative to screen dimensions
+const PARTICLE_SIZE_MIN = 0.75; // Multiplier of baseSize
+const PARTICLE_SIZE_MAX = 1.5; // Multiplier of baseSize
+
+// Selection and visual feedback
+const SELECTION_RADIUS_MULTIPLIER = 2; // Multiplier of baseSize for touch selection
+const PULSE_EFFECT_SCALE = 1.5;
+const PULSE_EFFECT_DECAY = 0.05;
+
+// Removal settings
+const REMOVAL_RADIUS_MULTIPLIER = 0.15; // Multiplier of min screen dimension
+
+// ===== STATE VARIABLES =====
 let longPressActive = false;
 let previousTouchDistance = 0;
 let touchStartTime = 0;
 let touchStartPos = { x: 0, y: 0 };
 let longPressTimer = null;
-const LONG_PRESS_DURATION = 500; // ms
 let time = 0;
 let rotation = 0;
 let baseSize; // Base size for scaling
-let spawnCount = 37;
-let padding = 2.5;
-let maxParticles = 1000;
+let spawnCount = DEFAULT_SPAWN_COUNT;
+let padding = PHYSICS_PADDING;
 let currentShape = 'circle';
 const shapes = ['circle', 'square', 'triangle'];
 
@@ -48,7 +89,7 @@ let currentlyHoveredParticle = null; // Track which particle is being hovered fo
 
 function calculateBaseSize() {
     // Calculate base size relative to screen dimensions
-    return min(windowWidth, windowHeight) * 0.04;
+    return min(windowWidth, windowHeight) * BASE_SIZE_MULTIPLIER;
 }
 
 function setupPhysics() {
@@ -57,18 +98,24 @@ function setupPhysics() {
     world = engine.world;
 
     // Reduce gravity for more floaty feel
-    engine.world.gravity.y = 0.5;
+    engine.world.gravity.y = PHYSICS_GRAVITY;
 
     // Create boundaries
     createBoundaries();
 
-    // Setup collision detection for sound effects
-    Matter.Events.on(engine, 'collisionStart', handleCollisionSound);
+    // Set up collision events for acid particles and sound effects
+    Matter.Events.on(engine, 'collisionStart', (event) => {
+        handleCollisionStart(event); // Acid effects
+        handleCollisionSound(event);  // Sound effects
+    });
 
     // Run the engine
     Matter.Runner.run(engine);
 }
 
+/**
+ * Handle collision events for sound effects
+ */
 function handleCollisionSound(event) {
     if (!soundManager) return;
 
@@ -119,6 +166,73 @@ function handleCollisionSound(event) {
     }
 }
 
+/**
+ * Handle collision events for acid particle effects
+ */
+function handleCollisionStart(event) {
+    const pairs = event.pairs;
+
+    for (let pair of pairs) {
+        const bodyA = pair.bodyA;
+        const bodyB = pair.bodyB;
+
+        // Find the particles associated with these bodies
+        const particleA = particles.find(p => p.body === bodyA);
+        const particleB = particles.find(p => p.body === bodyB);
+
+        // If both particles exist and one is acid
+        if (particleA && particleB) {
+            if (particleA.isAcid && !particleB.isAcid && !particleB.isLocked) {
+                applyAcidEffect(particleA, particleB);
+            } else if (particleB.isAcid && !particleA.isAcid && !particleA.isLocked) {
+                applyAcidEffect(particleB, particleA);
+            }
+        }
+    }
+}
+
+
+/**
+ * Apply acid effect from one particle to another
+ * @param {PhysicsParticle} acidParticle - The acid particle
+ * @param {PhysicsParticle} targetParticle - The target particle to dissolve
+ */
+function applyAcidEffect(acidParticle, targetParticle) {
+    // Reduce the target particle's size
+    const newSize = targetParticle.size * (1 - acidParticle.acidStrength);
+
+    // If particle is too small, remove it
+    if (newSize < MIN_PARTICLE_SIZE) {
+        targetParticle.remove();
+        const index = particles.indexOf(targetParticle);
+        if (index !== -1) {
+            particles.splice(index, 1);
+        }
+
+        // Also remove from selected and locked arrays if needed
+        const selectedIndex = selectedParticles.indexOf(targetParticle);
+        if (selectedIndex !== -1) {
+            selectedParticles.splice(selectedIndex, 1);
+        }
+
+        const lockedIndex = lockedParticles.indexOf(targetParticle);
+        if (lockedIndex !== -1) {
+            lockedParticles.splice(lockedIndex, 1);
+        }
+
+        // Update button states
+        updateButtonStates();
+    } else {
+        // Update the particle's visual size
+        targetParticle.size = newSize;
+        // Update body with new size
+        targetParticle.resizeBody();
+    }
+}
+
+/**
+ * Create or recreate physics boundaries (walls and floor)
+ */
 function createBoundaries() {
     // Clear existing boundaries
     for (let boundary of boundaries) {
@@ -127,10 +241,10 @@ function createBoundaries() {
     boundaries = [];
 
     // Create new boundaries
-    let ground = Matter.Bodies.rectangle(windowWidth/2, windowHeight + 25, windowWidth, 50, { 
+    let ground = Matter.Bodies.rectangle(windowWidth/2, windowHeight + 25, windowWidth, 50, {
         isStatic: true,
-        friction: 0.3,
-        restitution: 0.4
+        friction: PHYSICS_FRICTION,
+        restitution: PHYSICS_RESTITUTION
     });
     
     let leftWall = Matter.Bodies.rectangle(-25, windowHeight/2, 50, windowHeight, { isStatic: true });
@@ -140,6 +254,9 @@ function createBoundaries() {
     Matter.World.add(world, boundaries);
 }
 
+/**
+ * p5.js setup function - initializes the canvas and all systems
+ */
 function setup() {
     const canvas = createCanvas(windowWidth, windowHeight);
     canvas.parent('#canvasContainer');
@@ -156,6 +273,9 @@ function setup() {
     createBackgroundBuffer();
 }
 
+/**
+ * Create a cached gradient background buffer for performance optimization
+ */
 function createBackgroundBuffer() {
     // Create a buffer for the background
     backgroundBuffer = createGraphics(windowWidth, windowHeight);
@@ -173,6 +293,9 @@ function createBackgroundBuffer() {
     }
 }
 
+/**
+ * p5.js window resize handler - updates canvas and physics boundaries
+ */
 function windowResized() {
     resizeCanvas(windowWidth, windowHeight);
     baseSize = calculateBaseSize();
@@ -180,6 +303,9 @@ function windowResized() {
     createBackgroundBuffer(); // Recreate background buffer on resize
 }
 
+/**
+ * p5.js draw loop - runs every frame
+ */
 function draw() {
     updateButtonStates();
     // Update time
@@ -196,7 +322,7 @@ function draw() {
         
         // Apply pulse effect if it exists
         if (particle.pulseEffect && particle.pulseEffect > 1) {
-            particle.pulseEffect -= 0.05;
+            particle.pulseEffect -= PULSE_EFFECT_DECAY;
             if (particle.pulseEffect <= 1) {
                 particle.pulseEffect = null;
             }
@@ -212,7 +338,7 @@ function draw() {
     }
     
     // Update particle count display less frequently
-    if (frameCount % 10 === 0) { // Only update every 10 frames
+    if (frameCount % PARTICLE_COUNT_UPDATE_INTERVAL === 0) {
         const particleCountElement = document.getElementById('particleCount');
         if (particleCountElement) {
             particleCountElement.textContent = particles.length;
@@ -228,28 +354,48 @@ function draw() {
     }
 }
 
-// Utility function to detect mobile devices
+/**
+ * Detect if the current device is mobile based on user agent and screen size
+ * @returns {boolean} True if mobile device detected
+ */
 function isMobileDevice() {
     return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768;
 }
 
-// Add this function to handle the background gradient
-function setGradientBackground() {
-    // Create gradient background
-    let c1 = color(255, 200, 100);
-    let c2 = color(200, 100, 255);
-    
-    for(let y = 0; y < height; y++){
-        let inter = map(y, 0, height, 0, 1);
-        let c = lerpColor(c1, c2, inter);
-        stroke(c);
-        line(0, y, width, y);
+/**
+ * Create a Matter.js physics body based on the shape type
+ * @param {string} shape - The shape type ('circle', 'square', or 'triangle')
+ * @param {number} x - X position
+ * @param {number} y - Y position
+ * @param {number} size - Size of the shape
+ * @param {Object} options - Matter.js body options
+ * @returns {Matter.Body} The created physics body
+ */
+function createPhysicsBody(shape, x, y, size, options = {}) {
+    const defaultOptions = {
+        friction: PHYSICS_FRICTION,
+        restitution: PHYSICS_RESTITUTION,
+        angle: random(TWO_PI),
+        density: PHYSICS_DENSITY,
+        label: 'particle',
+        ...options
+    };
+
+    switch (shape) {
+        case 'circle':
+            return Matter.Bodies.circle(x, y, size/2 + padding, defaultOptions);
+        case 'square':
+            return Matter.Bodies.rectangle(x, y, size + padding, size + padding, defaultOptions);
+        case 'triangle':
+            return Matter.Bodies.polygon(x, y, 3, size/1.8, defaultOptions);
+        default:
+            return Matter.Bodies.circle(x, y, size/2 + padding, defaultOptions);
     }
 }
 
 class PhysicsParticle {
     constructor(x, y, color, shape) {
-        this.size = random(baseSize * 0.75, baseSize * 1.5);
+        this.size = random(baseSize * PARTICLE_SIZE_MIN, baseSize * PARTICLE_SIZE_MAX);
         this.color = color;
         this.shape = currentShape;
         this.isHovered = false;
@@ -258,57 +404,20 @@ class PhysicsParticle {
         this.isAcid = false;
         this.pulseEffect = null;
         this.alpha = 255;
-        this.acidStrength = 0.1;
-        this.lastAcidEffect = 0;
+        this.acidStrength = ACID_STRENGTH;
         this.originalSize = this.size;
-        this.acidDecayRate = 0.025; // Rate at which acid particles shrink
+        this.acidDecayRate = ACID_DECAY_RATE;
         this.acidDecayTimer = 0; // Timer for acid decay
-        
-        // Create body based on shape
-        switch (shape) {
-            case 'circle':
-                this.body = Matter.Bodies.circle(x, y, this.size/2 + padding, {
-                    friction: 0.3,
-                    restitution: 0.4,
-                    angle: random(TWO_PI),
-                    density: 0.001,
-                    label: 'particle'
-                });
-                break;
-            case 'square':
-                this.body = Matter.Bodies.rectangle(x, y, this.size + padding, this.size + padding, {
-                    friction: 0.3,
-                    restitution: 0.4,
-                    angle: random(TWO_PI),
-                    density: 0.001,
-                    label: 'particle'
-                });
-                break;
-            case 'triangle':
-                this.body = Matter.Bodies.polygon(x, y, 3, this.size/1.8, {
-                    friction: 0.3,
-                    restitution: 0.4,
-                    angle: random(TWO_PI),
-                    density: 0.001,
-                    label: 'particle'
-                });
-                break;
-            default:
-                this.body = Matter.Bodies.circle(x, y, this.size/2 + padding, {
-                    friction: 0.3,
-                    restitution: 0.4,
-                    angle: random(TWO_PI),
-                    density: 0.001,
-                    label: 'particle'
-                });
-        }
-        
+
+        // Create body using helper function
+        this.body = createPhysicsBody(shape, x, y, this.size);
+
         // Add initial velocity
-        Matter.Body.setVelocity(this.body, { 
-            x: random(-5, 5),
-            y: random(-5, 0)
+        Matter.Body.setVelocity(this.body, {
+            x: random(INITIAL_VELOCITY_X_MIN, INITIAL_VELOCITY_X_MAX),
+            y: random(INITIAL_VELOCITY_Y_MIN, INITIAL_VELOCITY_Y_MAX)
         });
-        
+
         Matter.World.add(world, this.body);
         previousColor = this.color;
     }
@@ -322,13 +431,13 @@ class PhysicsParticle {
                 
                 // Update acid decay timer
                 this.acidDecayTimer += deltaTime;
-                
+
                 // Gradually shrink acid particle
-                if (this.acidDecayTimer > 100) { // Shrink every 100ms
+                if (this.acidDecayTimer > ACID_DECAY_INTERVAL) {
                     this.size *= (1 - this.acidDecayRate);
-                    
+
                     // If particle is too small, remove it
-                    if (this.size < 5) {
+                    if (this.size < MIN_PARTICLE_SIZE) {
                         this.remove();
                         const index = particles.indexOf(this);
                         if (index !== -1) {
@@ -349,247 +458,38 @@ class PhysicsParticle {
                         // Update button states
                         updateButtonStates();
                     } else {
-                        // Store the particle's current position and velocity
-                        const pos = this.body.position;
-                        const vel = this.body.velocity;
-                        const angle = this.body.angle;
-                        
-                        // Remove the old body
-                        Matter.World.remove(world, this.body);
-                        
-                        // Create a new body with the updated size
-                        let newBody;
-                        switch (this.shape) {
-                            case 'circle':
-                                newBody = Matter.Bodies.circle(
-                                    pos.x,
-                                    pos.y,
-                                    this.size/2 + padding,
-                                    {
-                                        friction: 0.3,
-                                        restitution: 0.4,
-                                        angle: angle,
-                                        density: 0.001,
-                                        label: 'particle'
-                                    }
-                                );
-                                break;
-                            case 'square':
-                                newBody = Matter.Bodies.rectangle(
-                                    pos.x,
-                                    pos.y,
-                                    this.size + padding,
-                                    this.size + padding,
-                                    {
-                                        friction: 0.3,
-                                        restitution: 0.4,
-                                        angle: angle,
-                                        density: 0.001,
-                                        label: 'particle'
-                                    }
-                                );
-                                break;
-                            case 'triangle':
-                                newBody = Matter.Bodies.polygon(
-                                    pos.x,
-                                    pos.y,
-                                    3,
-                                    this.size/1.8,
-                                    {
-                                        friction: 0.3,
-                                        restitution: 0.4,
-                                        angle: angle,
-                                        density: 0.001,
-                                        label: 'particle'
-                                    }
-                                );
-                                break;
-                            default:
-                                newBody = Matter.Bodies.circle(
-                                    pos.x,
-                                    pos.y,
-                                    this.size/2 + padding,
-                                    {
-                                        friction: 0.3,
-                                        restitution: 0.4,
-                                        angle: angle,
-                                        density: 0.001,
-                                        label: 'particle'
-                                    }
-                                );
-                        }
-                        
-                        // Restore the particle's velocity
-                        Matter.Body.setVelocity(newBody, vel);
-                        
-                        // Add the new body to the world
-                        Matter.World.add(world, newBody);
-                        
-                        // Update the particle's body reference
-                        this.body = newBody;
+                        // Update body with new size
+                        this.resizeBody();
                     }
                     this.acidDecayTimer = 0;
                 }
-                
-                // Only apply acid effect to other particles every 100ms
-                if (currentTime - this.lastAcidEffect > 100) {
-                    // Check for collisions with other particles
-                    for (let particle of particles) {
-                        if (particle !== this && !particle.isAcid && !particle.isLocked) {
-                            const distance = dist(
-                                this.body.position.x, this.body.position.y,
-                                particle.body.position.x, particle.body.position.y
-                            );
-                            
-                            // Calculate the combined radius including padding based on shape
-                            let acidRadius, targetRadius;
-                            
-                            // Acid particle radius
-                            switch (this.shape) {
-                                case 'circle':
-                                    acidRadius = this.size/2 + padding;
-                                    break;
-                                case 'square':
-                                    acidRadius = this.size/2 + padding;
-                                    break;
-                                case 'triangle':
-                                    acidRadius = this.size/1.8 + padding;
-                                    break;
-                                default:
-                                    acidRadius = this.size/2 + padding;
-                            }
-                            
-                            // Target particle radius
-                            switch (particle.shape) {
-                                case 'circle':
-                                    targetRadius = particle.size/2 + padding;
-                                    break;
-                                case 'square':
-                                    targetRadius = particle.size/2 + padding;
-                                    break;
-                                case 'triangle':
-                                    targetRadius = particle.size/1.8 + padding;
-                                    break;
-                                default:
-                                    targetRadius = particle.size/2 + padding;
-                            }
-                            
-                            // If particles are touching (using physics body sizes)
-                            if (distance < (acidRadius + targetRadius)) {
-                                // Reduce the target particle's size
-                                const newSize = particle.size * (1 - this.acidStrength);
-                                
-                                // If particle is too small, remove it
-                                if (newSize < 5) {
-                                    particle.remove();
-                                    const index = particles.indexOf(particle);
-                                    if (index !== -1) {
-                                        particles.splice(index, 1);
-                                    }
-                                    
-                                    // Also remove from selected and locked arrays if needed
-                                    const selectedIndex = selectedParticles.indexOf(particle);
-                                    if (selectedIndex !== -1) {
-                                        selectedParticles.splice(selectedIndex, 1);
-                                    }
-                                    
-                                    const lockedIndex = lockedParticles.indexOf(particle);
-                                    if (lockedIndex !== -1) {
-                                        lockedParticles.splice(lockedIndex, 1);
-                                    }
-                                    
-                                    // Update button states
-                                    updateButtonStates();
-                                } else {
-                                    // Store the particle's current position and velocity
-                                    const pos = particle.body.position;
-                                    const vel = particle.body.velocity;
-                                    const angle = particle.body.angle;
-                                    
-                                    // Remove the old body
-                                    Matter.World.remove(world, particle.body);
-                                    
-                                    // Create a new body with the updated size
-                                    let newBody;
-                                    switch (particle.shape) {
-                                        case 'circle':
-                                            newBody = Matter.Bodies.circle(
-                                                pos.x,
-                                                pos.y,
-                                                newSize/2 + padding,
-                                                {
-                                                    friction: 0.3,
-                                                    restitution: 0.4,
-                                                    angle: angle,
-                                                    density: 0.001,
-                                                    label: 'particle'
-                                                }
-                                            );
-                                            break;
-                                        case 'square':
-                                            newBody = Matter.Bodies.rectangle(
-                                                pos.x,
-                                                pos.y,
-                                                newSize + padding,
-                                                newSize + padding,
-                                                {
-                                                    friction: 0.3,
-                                                    restitution: 0.4,
-                                                    angle: angle,
-                                                    density: 0.001,
-                                                    label: 'particle'
-                                                }
-                                            );
-                                            break;
-                                        case 'triangle':
-                                            newBody = Matter.Bodies.polygon(
-                                                pos.x,
-                                                pos.y,
-                                                3,
-                                                newSize/1.8,
-                                                {
-                                                    friction: 0.3,
-                                                    restitution: 0.4,
-                                                    angle: angle,
-                                                    density: 0.001,
-                                                    label: 'particle'
-                                                }
-                                            );
-                                            break;
-                                        default:
-                                            newBody = Matter.Bodies.circle(
-                                                pos.x,
-                                                pos.y,
-                                                newSize/2 + padding,
-                                                {
-                                                    friction: 0.3,
-                                                    restitution: 0.4,
-                                                    angle: angle,
-                                                    density: 0.001,
-                                                    label: 'particle'
-                                                }
-                                            );
-                                    }
-                                    
-                                    // Restore the particle's velocity
-                                    Matter.Body.setVelocity(newBody, vel);
-                                    
-                                    // Add the new body to the world
-                                    Matter.World.add(world, newBody);
-                                    
-                                    // Update the particle's body reference
-                                    particle.body = newBody;
-                                    
-                                    // Update the particle's visual size
-                                    particle.size = newSize;
-                                }
-                            }
-                        }
-                    }
-                    this.lastAcidEffect = currentTime;
-                }
+
+                // Note: Acid collision effects are now handled by Matter.js collision events
+                // See handleCollisionStart() for acid effect application
             }
         }
+    }
+
+    /**
+     * Resize the physics body to match current size while preserving position and velocity
+     */
+    resizeBody() {
+        // Store the particle's current position and velocity
+        const pos = this.body.position;
+        const vel = this.body.velocity;
+        const angle = this.body.angle;
+
+        // Remove the old body
+        Matter.World.remove(world, this.body);
+
+        // Create a new body with the updated size
+        this.body = createPhysicsBody(this.shape, pos.x, pos.y, this.size, { angle });
+
+        // Restore the particle's velocity
+        Matter.Body.setVelocity(this.body, vel);
+
+        // Add the new body to the world
+        Matter.World.add(world, this.body);
     }
 
     display() {
@@ -603,10 +503,8 @@ class PhysicsParticle {
         noStroke();
         
         // Apply scale if pulse effect is active
-        let scaleMultiplier = 1;
         if (this.pulseEffect && this.pulseEffect > 1) {
-            scaleMultiplier = this.pulseEffect;
-            scale(scaleMultiplier);
+            scale(this.pulseEffect);
         }
         
         // Change appearance based on state
@@ -681,56 +579,27 @@ class PhysicsParticle {
     }
 }
 
-function drawConcentricSquares(x, y, size) {
-    push();
-    translate(x + size/2, y + size/2);
-    rotate(rotation);
-    
-    let d = dist(mouseX, mouseY, x + size/2, y + size/2);
-    let maxDist = size * 2;
-    let scaleFactor = map(constrain(d, 0, maxDist), 0, maxDist, 1.5, 1);
-    
-    noFill();
-    for(let i = size; i > 0; i -= size/10) {
-        let hue = (time * 50 + i * 10) % 360;
-        stroke(hue, 70, 70, 0.5);
-        rectMode(CENTER);
-        
-        let wave = sin(time + x * 0.05 + y * 0.05) * (size/8);
-        let squareSize = i * scaleFactor + wave;
-        
-        rect(0, 0, squareSize, squareSize);
-    }
-    pop();
-    
-    if(d < size) {
-        noStroke();
-        fill(255, map(d, 0, size, 255, 0));
-        rect(x, y, size, size);
-    }
-}
-
-// create a function that detects mouse wheel movement to set the amount of particles to spawn
+/**
+ * Adjust particle spawn count with mouse wheel
+ */
 function mouseWheel(event) {
     if (event.delta < 0) {
-        spawnCount += 7;
+        spawnCount += SPAWN_COUNT_WHEEL_DELTA;
     } else {
-        spawnCount -= 7;
+        spawnCount -= SPAWN_COUNT_WHEEL_DELTA;
     }
-    spawnCount = constrain(spawnCount, 10, 100);
+    spawnCount = constrain(spawnCount, MIN_SPAWN_COUNT, MAX_SPAWN_COUNT);
 }
 
+/**
+ * p5.js mouse pressed handler
+ */
 function mousePressed() {
     // detect if click is inside the "toolbar" and prevent adding particles
     if (mouseX > toolbar.offsetLeft && mouseX < toolbar.offsetLeft + toolbar.offsetWidth && mouseY > toolbar.offsetTop && mouseY < toolbar.offsetTop + toolbar.offsetHeight) {
         return;
     }
 
-    // detect if click is inside helpModal
-    // if (mouseX > helpModal.offsetLeft && mouseX < helpModal.offsetLeft + helpModal.offsetWidth && mouseY > helpModal.offsetTop && mouseY < helpModal.offsetTop + helpModal.offsetHeight) {
-    //     return;
-    // }
-    
     // Start marquee selection if shift is pressed
     if (shiftPressed) {
         isMarqueeSelecting = true;
@@ -753,7 +622,6 @@ function mousePressed() {
             if (vKeyPressed) {
                 // Convert particle to acid
                 particle.isAcid = true;
-                //particle.color = [0, 255, 0]; // Bright green color
 
                 // Play acid conversion sound
                 if (soundManager) {
@@ -940,7 +808,7 @@ function touchMoved() {
             for (let particle of particles) {
                 // Calculate distance from particle to touch
                 const distance = dist(touch.x, touch.y, particle.body.position.x, particle.body.position.y);
-                const selectionRadius = baseSize * 2; // Adjust as needed
+                const selectionRadius = baseSize * SELECTION_RADIUS_MULTIPLIER;
                 
                 // If particle is within selection radius and not already selected
                 if (distance < selectionRadius && !particle.isSelected) {
@@ -948,7 +816,7 @@ function touchMoved() {
                     particle.isSelected = true;
                     
                     // Add visual feedback (pulse effect)
-                    particle.pulseEffect = 1.5;
+                    particle.pulseEffect = PULSE_EFFECT_SCALE;
                 }
             }
             
@@ -972,7 +840,7 @@ function touchMoved() {
             // Adjust spawn count based on pinch gesture
             if (abs(distanceDelta) > 2) { // Threshold to avoid small fluctuations
                 spawnCount += distanceDelta * 0.1;
-                spawnCount = constrain(spawnCount, 10, 100);
+                spawnCount = constrain(spawnCount, MIN_SPAWN_COUNT, MAX_SPAWN_COUNT);
             }
         }
         
@@ -1022,6 +890,11 @@ function handleLongPress(x, y) {
     updateButtonStates();
 }
 
+/**
+ * Create new particles at the specified position
+ * @param {number} x - X coordinate
+ * @param {number} y - Y coordinate
+ */
 function createParticles(x, y) {
     // Play particle creation sound
     if (soundManager) {
@@ -1049,6 +922,9 @@ function createParticles(x, y) {
     }
 }
 
+/**
+ * p5.js key pressed handler
+ */
 function keyPressed() {
     // Track shift key state
     if (keyCode === SHIFT) {
@@ -1111,6 +987,11 @@ function keyPressed() {
             lockBtn.dispatchEvent(event);
         }
     }
+    // ? key to show help
+    if (key === '?') {
+        const event = new Event('click');
+        helpBtn.dispatchEvent(event);
+    }
     // C key to change color of selected particles
     if (key === 'c' || key === 'C') {
         if (selectedParticles.length > 0) {
@@ -1133,6 +1014,9 @@ function keyPressed() {
     }
 }
 
+/**
+ * p5.js key released handler
+ */
 function keyReleased() {
     // Track shift key state
     if (keyCode === SHIFT) {
@@ -1162,6 +1046,9 @@ function keyReleased() {
     return false;
 }
 
+/**
+ * Remove a random cluster of unlocked particles (two-finger tap behavior)
+ */
 function resetParticles() {
     if (particles.length === 0) return;
 
@@ -1180,7 +1067,7 @@ function resetParticles() {
     let centerPos = centerParticle.body.position;
     
     // Calculate radius based on screen size
-    let removalRadius = min(windowWidth, windowHeight) * 0.15;
+    let removalRadius = min(windowWidth, windowHeight) * REMOVAL_RADIUS_MULTIPLIER;
     
     // Identify which ORIGINAL particles to remove (maintaining the original indices)
     let toRemove = [];
@@ -1216,6 +1103,9 @@ function resetParticles() {
     particles = particles.filter(p => !toRemove.includes(p));
 }
 
+/**
+ * p5.js mouse moved handler - updates hover states
+ */
 function mouseMoved() {
     // Update marquee selection if active
     if (isMarqueeSelecting) {
@@ -1265,6 +1155,9 @@ function mouseMoved() {
     return false;
 }
 
+/**
+ * p5.js mouse dragged handler - handles marquee selection
+ */
 function mouseDragged() {
     // Update marquee selection if active
     if (isMarqueeSelecting) {
@@ -1316,6 +1209,9 @@ function mouseDragged() {
     return true;
 }
 
+/**
+ * p5.js mouse released handler
+ */
 function mouseReleased() {
     // Just clear the marquee selection state
     if (isMarqueeSelecting) {
@@ -1340,6 +1236,9 @@ function hexToRgb(hex) {
     ] : [0, 0, 0];
 }
 
+/**
+ * Set up toolbar button event listeners
+ */
 function setupControls() {
     const shapeSelectBtn = document.getElementById('shapeSelectBtn');
     const currentColor = document.getElementById('currentColor');
@@ -1357,7 +1256,7 @@ function setupControls() {
     const initialB = Math.floor(random(0, 255));
     currentPickedColor = [initialR, initialG, initialB];
     colorPickerInput.value = rgbToHex(initialR, initialG, initialB);
-    
+
     // Set up current color click handler
     currentColor.addEventListener('click', () => {
         if (isRandomColor) {
@@ -1385,7 +1284,7 @@ function setupControls() {
             }
         }
     });
-    
+
     // Set up color picker change handler
     colorPickerInput.addEventListener('change', (event) => {
         const hexColor = event.target.value;
@@ -1411,7 +1310,11 @@ function setupControls() {
         } else {
             shapeName = currentShape;
         }
-        shapeSelectBtn.innerHTML = '<span class="material-symbols-outlined">' + shapeName + '</span>';
+
+        // Update button content and aria-label
+        const shapeLabel = currentShape.charAt(0).toUpperCase() + currentShape.slice(1);
+        shapeSelectBtn.innerHTML = '<span class="material-symbols-outlined" aria-hidden="true">' + shapeName + '</span>';
+        shapeSelectBtn.setAttribute('aria-label', 'Cycle shape (' + shapeLabel + ')');
 
         // Play sound
         if (soundManager) {
@@ -1594,8 +1497,12 @@ function setupControls() {
                     <td>Lock/unlock selected particles</td>
                 </tr>
                 <tr>
-                    <td><span class="key">M</span> + Click</td>
+                    <td><span class="key">X</span> + Click</td>
                     <td>Split a particle into smaller fragments</td>
+                </tr>
+                <tr>
+                    <td><span class="key">V</span> + Click</td>
+                    <td>Convert a particle into acid (dissolves other particles)</td>
                 </tr>
                 <tr>
                     <td><span class="key">Shift</span> + Drag</td>
@@ -1717,6 +1624,9 @@ function setupControls() {
     }
 }
 
+/**
+ * Toggle between random color mode and custom color picker
+ */
 function toggleColorPicker() {
     const currentColor = document.getElementById('currentColor');
     const colorPickerInput = document.getElementById('colorPickerInput');
@@ -1873,28 +1783,42 @@ function handleColorPickerChange(event) {
     }
 }
 
+/**
+ * Update toolbar button states (enabled/disabled) based on current selection
+ */
 function updateButtonStates() {
     const cutBtn = document.getElementById('cutBtn');
     const lockBtn = document.getElementById('lockBtn');
     const clearBtn = document.getElementById('clearBtn');
-    
+
     // Enable/disable cut and lock buttons based on selection
     if (selectedParticles.length > 0) {
         cutBtn.classList.remove('disabled');
         lockBtn.classList.remove('disabled');
+        cutBtn.setAttribute('aria-disabled', 'false');
+        lockBtn.setAttribute('aria-disabled', 'false');
     } else {
         cutBtn.classList.add('disabled');
         lockBtn.classList.add('disabled');
+        cutBtn.setAttribute('aria-disabled', 'true');
+        lockBtn.setAttribute('aria-disabled', 'true');
     }
-    
+
     // Enable/disable clear button based on particles
     if (particles.length > 0) {
         clearBtn.classList.remove('disabled');
+        clearBtn.setAttribute('aria-disabled', 'false');
     } else {
         clearBtn.classList.add('disabled');
+        clearBtn.setAttribute('aria-disabled', 'true');
     }
 }
 
+/**
+ * Create a visual indicator for touch drag selection mode
+ * @param {number} x - X coordinate
+ * @param {number} y - Y coordinate
+ */
 function createSelectionIndicator(x, y) {
     // Remove any existing indicator
     if (selectionIndicator) {
@@ -1911,6 +1835,10 @@ function createSelectionIndicator(x, y) {
     selectionIndicator.style.top = (y - 20) + 'px';
 }
 
+/**
+ * Split a particle into multiple smaller fragments with explosion effect
+ * @param {PhysicsParticle} particle - The particle to split
+ */
 function splitParticle(particle) {
     // Get original particle properties
     const originalSize = particle.size;
