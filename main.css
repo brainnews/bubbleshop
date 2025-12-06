@@ -146,6 +146,7 @@ button.toolbar-btn.muted {
     display: flex;
     align-items: center;
     padding: 0 5px;
+    pointer-events: auto;
 }
 
 .soundpack-select {
@@ -164,6 +165,8 @@ button.toolbar-btn.muted {
     -webkit-appearance: none;
     -moz-appearance: none;
     appearance: none;
+    pointer-events: auto;
+    touch-action: manipulation;
 
     /* Custom dropdown arrow using background gradient */
     background-image:
@@ -397,10 +400,14 @@ button.toolbar-btn:hover {
     /* Second row audio controls */
     #muteBtn {
         order: 10;
+        pointer-events: auto;
+        touch-action: manipulation;
+        -webkit-tap-highlight-color: rgba(255, 200, 100, 0.3);
     }
 
     .volume-control {
         order: 11;
+        pointer-events: auto;
     }
 
     .volume-slider {
@@ -409,6 +416,7 @@ button.toolbar-btn:hover {
 
     .soundpack-control {
         order: 12;
+        pointer-events: auto;
     }
 
     #particleCount {
@@ -471,10 +479,14 @@ button.toolbar-btn:hover {
     /* Second row audio controls */
     #muteBtn {
         order: 10;
+        pointer-events: auto;
+        touch-action: manipulation;
+        -webkit-tap-highlight-color: rgba(255, 200, 100, 0.3);
     }
 
     .volume-control {
         order: 11;
+        pointer-events: auto;
     }
 
     .volume-slider {
@@ -483,6 +495,7 @@ button.toolbar-btn:hover {
 
     .soundpack-control {
         order: 12;
+        pointer-events: auto;
     }
 
     #particleCount {
@@ -538,10 +551,14 @@ button.toolbar-btn:hover {
     #muteBtn {
         order: 10;
         min-width: 40px;
+        pointer-events: auto;
+        touch-action: manipulation;
+        -webkit-tap-highlight-color: rgba(255, 200, 100, 0.3);
     }
 
     .volume-control {
         order: 11;
+        pointer-events: auto;
     }
 
     .volume-slider {
@@ -550,6 +567,7 @@ button.toolbar-btn:hover {
 
     .soundpack-control {
         order: 12;
+        pointer-events: auto;
     }
 
     #particleCount {
