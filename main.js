@@ -271,6 +271,7 @@ function setup() {
     soundManager.registerPack('original', OriginalSoundPack);
     soundManager.registerPack('retro8bit', Retro8BitSoundPack);
     soundManager.registerPack('orchestral', OrchestraSoundPack);
+    soundManager.registerPack('ambient', AmbientSoundPack);
     soundManager.loadSavedPack();
 
     // Create and cache the background
@@ -1788,6 +1789,31 @@ function initializeUI() {
         e.preventDefault();
         clearCanvas();
     });
+
+    // Help button - trigger existing click handler
+    const helpBtn = document.getElementById('helpBtn');
+    helpBtn.addEventListener('touchstart', function(e) {
+        e.preventDefault();
+        helpBtn.click();
+    });
+
+    // Mute button - trigger existing click handler
+    const muteBtn = document.getElementById('muteBtn');
+    muteBtn.addEventListener('touchstart', function(e) {
+        e.preventDefault();
+        muteBtn.click();
+    });
+
+    // Sound pack dropdown - trigger programmatically like other buttons
+    const soundPackSelect = document.getElementById('soundPackSelect');
+    if (soundPackSelect) {
+        soundPackSelect.addEventListener('touchstart', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            // Trigger click to open native picker
+            soundPackSelect.click();
+        });
+    }
 
     // Update button states
     updateButtonStates();
@@ -3831,6 +3857,681 @@ class OrchestraSoundPack extends BaseSoundPack {
         osc.onended = () => {
             this.activeOscillators--;
         };
+    }
+}
+
+/**
+ * AmbientSoundPack - Deep, drone-focused ambient sound pack
+ *
+ * Inspired by late 1990s/early 2000s electronic ambient music
+ * (Brian Eno's "Music for Airports", The Orb's atmospheric works).
+ * Features whole-tone scale, low-frequency drones, sustained pads,
+ * minimal percussion, and meditative atmosphere.
+ */
+class AmbientSoundPack extends BaseSoundPack {
+    constructor() {
+        super();
+
+        // Whole tone scale with emphasis on LOW frequencies (C2-C6)
+        this.scale = {
+            // Deep drone tones (C2-C3 range - primary focus)
+            C2: 65.41,
+            D2: 73.42,
+            E2: 82.41,
+            Fs2: 92.50,    // F#2
+            Gs2: 103.83,   // G#2
+            As2: 116.54,   // A#2
+
+            C3: 130.81,
+            D3: 146.83,
+            E3: 164.81,
+            Fs3: 184.997,
+            Gs3: 207.65,
+            As3: 233.08,
+
+            // Mid-range tones (C4-C5)
+            C4: 261.63,
+            D4: 293.66,
+            E4: 329.63,
+            Fs4: 369.99,
+            Gs4: 415.30,
+            As4: 466.16,
+
+            C5: 523.25,
+            D5: 587.33,
+            E5: 659.25,
+            Fs5: 739.99,
+
+            // Minimal high range (for subtle accents only)
+            C6: 1046.50
+        };
+
+        // Ambient-specific settings (Crystal/Glass sound)
+        this.volumeBias = 0.9;         // Bright and present
+        this.collisionCooldown = 60;   // Quick response for glass sounds
+        this.hoverCooldown = 200;
+        this.wallBounceCooldown = 100;
+
+        this.init();
+    }
+
+    // ========================================================================
+    // HELPER METHODS - Ambient Synthesis
+    // ========================================================================
+
+    /**
+     * Play crystal tone - bright glass-like sound
+     * @param {number} frequency - Base frequency in Hz
+     * @param {number} duration - Duration in seconds
+     * @param {number} volume - Volume (0-1, default 0.18)
+     */
+    playDrone(frequency, duration, volume = 0.18) {
+        if (!this.audioContext || this.isMuted || this.activeOscillators >= this.maxOscillators) {
+            return;
+        }
+
+        this.ensureAudioContext();
+        this.activeOscillators++;
+
+        const now = this.audioContext.currentTime;
+        const attack = 0.01;  // Instant attack like glass
+        const release = 0.4;  // Short ring
+
+        // Triangle wave for glass-like timbre
+        const osc = this.audioContext.createOscillator();
+        osc.type = 'triangle';
+        osc.frequency.value = frequency;
+
+        // High-pass filter to keep only bright frequencies
+        const filter = this.audioContext.createBiquadFilter();
+        filter.type = 'highpass';
+        filter.frequency.value = 2000; // Cut all dark frequencies
+        filter.Q.value = 1.5; // Resonance for "ping"
+
+        // Sharp glass-like envelope
+        const gainNode = this.audioContext.createGain();
+        gainNode.gain.value = 0;
+        gainNode.gain.linearRampToValueAtTime(volume * this.volumeBias, now + attack);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, now + attack + duration + release);
+
+        // Connect: osc → filter → gain → master
+        osc.connect(filter);
+        filter.connect(gainNode);
+        gainNode.connect(this.masterGain);
+
+        osc.start(now);
+        osc.stop(now + attack + duration + release);
+
+        osc.onended = () => {
+            this.activeOscillators--;
+        };
+    }
+
+    /**
+     * Play glass chord - bright crystalline harmony
+     * @param {number} frequency - Base frequency in Hz
+     * @param {number} duration - Duration in seconds
+     * @param {number} volume - Volume (0-1, default 0.2)
+     */
+    playPad(frequency, duration, volume = 0.2) {
+        if (!this.audioContext || this.isMuted || this.activeOscillators >= this.maxOscillators - 3) {
+            return;
+        }
+
+        this.ensureAudioContext();
+
+        const now = this.audioContext.currentTime;
+        const attack = 0.02;  // Quick glass attack
+        const release = 0.5;  // Short crystal ring
+
+        // Create 3 detuned oscillators for shimmer
+        const detune = [-8, 0, 8]; // cents
+        const oscillators = [];
+
+        // Shared gain node for all oscillators
+        const padGain = this.audioContext.createGain();
+        padGain.gain.value = 0;
+        padGain.gain.linearRampToValueAtTime(volume * this.volumeBias, now + attack);
+        padGain.gain.exponentialRampToValueAtTime(0.001, now + attack + duration + release);
+
+        // High-pass filter for crystal brightness
+        const filter = this.audioContext.createBiquadFilter();
+        filter.type = 'highpass';
+        filter.frequency.value = 1500;
+        filter.Q.value = 1.0;
+
+        detune.forEach((cents) => {
+            this.activeOscillators++;
+
+            const osc = this.audioContext.createOscillator();
+            osc.type = 'triangle'; // Triangle for glass timbre
+            osc.frequency.value = frequency;
+            osc.detune.value = cents;
+
+            osc.connect(filter);
+            oscillators.push(osc);
+
+            osc.start(now);
+            osc.stop(now + attack + duration + release);
+        });
+
+        filter.connect(padGain);
+        padGain.connect(this.masterGain);
+
+        // Cleanup when first oscillator ends
+        oscillators[0].onended = () => {
+            this.activeOscillators -= detune.length;
+        };
+    }
+
+    /**
+     * Play bright chime - high crystalline tone
+     * @param {number} frequency - Base frequency (high range recommended)
+     * @param {number} duration - Duration in seconds
+     * @param {number} volume - Volume (0-1, default 0.22)
+     */
+    playDeepBass(frequency, duration, volume = 0.22) {
+        if (!this.audioContext || this.isMuted || this.activeOscillators >= this.maxOscillators) {
+            return;
+        }
+
+        this.ensureAudioContext();
+        this.activeOscillators++;
+
+        const now = this.audioContext.currentTime;
+        const attack = 0.005; // Instant like striking glass
+        const release = 0.6;  // Chime ring
+
+        // Sine wave for pure crystal tone
+        const osc = this.audioContext.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.value = frequency;
+
+        // High-pass for extreme brightness
+        const filter = this.audioContext.createBiquadFilter();
+        filter.type = 'highpass';
+        filter.frequency.value = 2500;
+        filter.Q.value = 2.0; // High resonance for chime quality
+
+        // Sharp envelope
+        const gainNode = this.audioContext.createGain();
+        gainNode.gain.value = 0;
+        gainNode.gain.linearRampToValueAtTime(volume * this.volumeBias, now + attack);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, now + attack + duration + release);
+
+        osc.connect(filter);
+        filter.connect(gainNode);
+        gainNode.connect(this.masterGain);
+
+        osc.start(now);
+        osc.stop(now + attack + duration + release);
+
+        osc.onended = () => {
+            this.activeOscillators--;
+        };
+    }
+
+    /**
+     * Play glass tap - clear crystalline note
+     * @param {number} frequency - Frequency in Hz
+     * @param {number} duration - Duration in seconds
+     * @param {number} volume - Volume (0-1, default 0.2)
+     */
+    playAmbientNote(frequency, duration, volume = 0.2) {
+        if (!this.audioContext || this.isMuted || this.activeOscillators >= this.maxOscillators) {
+            return;
+        }
+
+        this.ensureAudioContext();
+        this.activeOscillators++;
+
+        const now = this.audioContext.currentTime;
+        const attack = 0.008; // Nearly instant
+        const release = 0.35; // Quick ring
+
+        // Triangle wave for glass character
+        const osc = this.audioContext.createOscillator();
+        osc.type = 'triangle';
+        osc.frequency.value = frequency;
+
+        // High-pass to remove any darkness
+        const filter = this.audioContext.createBiquadFilter();
+        filter.type = 'highpass';
+        filter.frequency.value = 1800;
+        filter.Q.value = 1.2;
+
+        // Sharp glass envelope
+        const gainNode = this.audioContext.createGain();
+        gainNode.gain.value = 0;
+        gainNode.gain.linearRampToValueAtTime(volume * this.volumeBias, now + attack);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, now + attack + duration + release);
+
+        osc.connect(filter);
+        filter.connect(gainNode);
+        gainNode.connect(this.masterGain);
+
+        osc.start(now);
+        osc.stop(now + attack + duration + release);
+
+        osc.onended = () => {
+            this.activeOscillators--;
+        };
+    }
+
+    /**
+     * Play texture - filtered noise for atmospheric background
+     * @param {string} filterType - 'lowpass', 'bandpass', or 'highpass'
+     * @param {number} centerFreq - Center frequency for filter
+     * @param {number} duration - Duration in seconds
+     * @param {number} volume - Volume (0-1, default 0.08)
+     */
+    playTexture(filterType, centerFreq, duration, volume = 0.08) {
+        if (!this.audioContext || this.isMuted || this.activeOscillators >= this.maxOscillators) {
+            return;
+        }
+
+        this.ensureAudioContext();
+        this.activeOscillators++;
+
+        const now = this.audioContext.currentTime;
+
+        // Create pink noise buffer
+        const bufferSize = this.audioContext.sampleRate * duration;
+        const buffer = this.audioContext.createBuffer(1, bufferSize, this.audioContext.sampleRate);
+        const data = buffer.getChannelData(0);
+
+        // Pink noise generation (standard algorithm)
+        let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+        for (let i = 0; i < bufferSize; i++) {
+            const white = Math.random() * 2 - 1;
+            b0 = 0.99886 * b0 + white * 0.0555179;
+            b1 = 0.99332 * b1 + white * 0.0750759;
+            b2 = 0.96900 * b2 + white * 0.1538520;
+            b3 = 0.86650 * b3 + white * 0.3104856;
+            b4 = 0.55000 * b4 + white * 0.5329522;
+            b5 = -0.7616 * b5 - white * 0.0168980;
+            data[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.11;
+            b6 = white * 0.115926;
+        }
+
+        const noise = this.audioContext.createBufferSource();
+        noise.buffer = buffer;
+
+        // Apply filter
+        const filter = this.audioContext.createBiquadFilter();
+        filter.type = filterType;
+        filter.frequency.value = centerFreq;
+        filter.Q.value = 1.0;
+
+        // Short envelope
+        const gainNode = this.audioContext.createGain();
+        gainNode.gain.value = volume * this.volumeBias;
+        gainNode.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+        noise.connect(filter);
+        filter.connect(gainNode);
+        gainNode.connect(this.masterGain);
+
+        noise.start(now);
+        noise.stop(now + duration);
+
+        noise.onended = () => {
+            this.activeOscillators--;
+        };
+    }
+
+    /**
+     * Play soft click - ultra-short sine burst for minimal percussion
+     * @param {number} frequency - Frequency in Hz
+     * @param {number} volume - Volume (0-1, default 0.05)
+     */
+    playSoftClick(frequency, volume = 0.05) {
+        if (!this.audioContext || this.isMuted || this.activeOscillators >= this.maxOscillators) {
+            return;
+        }
+
+        this.ensureAudioContext();
+        this.activeOscillators++;
+
+        const now = this.audioContext.currentTime;
+        const duration = 0.03; // Very short
+
+        const osc = this.audioContext.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.value = frequency;
+
+        const gainNode = this.audioContext.createGain();
+        gainNode.gain.value = volume * this.volumeBias;
+        gainNode.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+        osc.connect(gainNode);
+        gainNode.connect(this.masterGain);
+
+        osc.start(now);
+        osc.stop(now + duration);
+
+        osc.onended = () => {
+            this.activeOscillators--;
+        };
+    }
+
+    // ========================================================================
+    // REQUIRED: PARTICLE PHYSICS SOUNDS (6 methods)
+    // ========================================================================
+
+    particleCreate(count) {
+        this.ensureAudioContext();
+
+        // Ascending crystal chimes - very high and bright
+        const notes = [this.scale.C5, this.scale.E5, this.scale.Gs4, this.scale.C6, this.scale.E5];
+
+        // Number of notes based on particle count (max 5)
+        const numNotes = Math.min(5, Math.ceil(count / 15));
+        const selectedNotes = notes.slice(0, numNotes);
+
+        // Quick sparkle (80ms between notes)
+        const stagger = count > 50 ? 0.1 : 0.08;
+
+        selectedNotes.forEach((freq, index) => {
+            setTimeout(() => {
+                this.playPad(freq, 0.15, 0.18);
+            }, index * stagger * 1000);
+        });
+    }
+
+    particleCollision(velocity, size1, size2) {
+        const now = Date.now();
+
+        if (now - this.lastCollisionSound < this.collisionCooldown) {
+            return;
+        }
+        this.lastCollisionSound = now;
+
+        this.ensureAudioContext();
+
+        // Calculate pitch based on average size (larger = lower, whole-tone scale only)
+        const avgSize = (size1 + size2) / 2;
+        const sizeMultiplier = constrain(map(avgSize / baseSize, 0.75, 1.5, 1.3, 0.7), 0.6, 1.4);
+
+        // Volume based on velocity (much quieter than other packs)
+        const baseVol = constrain(map(velocity, 0, 15, 0.03, 0.15), 0.02, 0.18);
+
+        // Density scaling (fade into background with many particles)
+        const densityScale = constrain(map(particles.length, 0, MAX_PARTICLES, 1.0, 0.2), 0.15, 1.0);
+
+        // Choose frequency from high crystal range only
+        let freq;
+        if (avgSize > baseSize * 1.2) {
+            // Large particles = high notes
+            freq = Math.random() > 0.5 ? this.scale.C5 : this.scale.E5;
+        } else if (avgSize > baseSize) {
+            // Medium = very high notes
+            freq = Math.random() > 0.5 ? this.scale.Gs4 : this.scale.C6;
+        } else {
+            // Small = ultra high crystal
+            freq = this.scale.C6;
+        }
+
+        freq *= sizeMultiplier;
+
+        // Quick crystal tap
+        this.playAmbientNote(freq, 0.08, baseVol * densityScale);
+    }
+
+    wallBounce(velocity) {
+        const now = Date.now();
+
+        if (now - this.lastWallBounceSound < this.wallBounceCooldown) {
+            return;
+        }
+        this.lastWallBounceSound = now;
+
+        this.ensureAudioContext();
+
+        // Bright crystalline tap
+        this.playAmbientNote(this.scale.C6, 0.05, 0.12);
+    }
+
+    acidConvert() {
+        this.ensureAudioContext();
+
+        // Descending crystal chimes: C6 → Gs4 → E5
+        const notes = [this.scale.C6, this.scale.Gs4, this.scale.E5];
+
+        notes.forEach((freq, index) => {
+            setTimeout(() => {
+                this.playAmbientNote(freq, 0.1, 0.18);
+            }, index * 100);
+        });
+    }
+
+    acidCorrosion() {
+        this.ensureAudioContext();
+
+        // Tiny crystal clink
+        this.playSoftClick(this.scale.C6, 0.08);
+    }
+
+    particleSplit(fragmentCount) {
+        this.ensureAudioContext();
+
+        // Bright crystal shatter
+        this.playAmbientNote(this.scale.E5, 0.12, 0.16);
+    }
+
+    // ========================================================================
+    // REQUIRED: UI BUTTON SOUNDS (6 methods)
+    // ========================================================================
+
+    colorPickerToggle(toRandom) {
+        this.ensureAudioContext();
+
+        if (toRandom) {
+            // Ascending crystal: C5 → E5 → C6
+            const notes = [this.scale.C5, this.scale.E5, this.scale.C6];
+            notes.forEach((freq, index) => {
+                setTimeout(() => {
+                    this.playPad(freq, 0.1, 0.18);
+                }, index * 70);
+            });
+        } else {
+            // Descending crystal: C6 → E5 → C5
+            const notes = [this.scale.C6, this.scale.E5, this.scale.C5];
+            notes.forEach((freq, index) => {
+                setTimeout(() => {
+                    this.playPad(freq, 0.1, 0.18);
+                }, index * 70);
+            });
+        }
+    }
+
+    shapeSelect() {
+        this.ensureAudioContext();
+
+        // Cycle through high crystal notes
+        const freqs = [this.scale.C5, this.scale.E5, this.scale.C6];
+        const freq = freqs[currentShape];
+
+        this.playAmbientNote(freq, 0.1, 0.18);
+    }
+
+    cutButton() {
+        this.ensureAudioContext();
+
+        // Descending glass notes: C6 → Gs4 → E5
+        const notes = [this.scale.C6, this.scale.Gs4, this.scale.E5];
+
+        notes.forEach((freq, index) => {
+            setTimeout(() => {
+                this.playDrone(freq, 0.12, 0.18);
+            }, index * 90);
+        });
+    }
+
+    lockButton(isLocking) {
+        this.ensureAudioContext();
+
+        if (isLocking) {
+            // Locking: ascending crystal C5 → E5 → C6
+            const notes = [this.scale.C5, this.scale.E5, this.scale.C6];
+            notes.forEach((freq, index) => {
+                setTimeout(() => {
+                    this.playPad(freq, 0.12, 0.2);
+                }, index * 80);
+            });
+        } else {
+            // Unlocking: descending C6 → E5 → C5
+            const notes = [this.scale.C6, this.scale.E5, this.scale.C5];
+            notes.forEach((freq, index) => {
+                setTimeout(() => {
+                    this.playPad(freq, 0.12, 0.2);
+                }, index * 80);
+            });
+        }
+    }
+
+    clearButton() {
+        this.ensureAudioContext();
+
+        // Crystal cascade: C6 → C5 (all high notes)
+        const notes = [
+            this.scale.C6,
+            this.scale.As4,
+            this.scale.Gs4,
+            this.scale.Fs5,
+            this.scale.E5,
+            this.scale.D5,
+            this.scale.C5
+        ];
+
+        // Quick sparkle cascade (70ms between notes)
+        notes.forEach((freq, index) => {
+            setTimeout(() => {
+                this.playAmbientNote(freq, 0.1, 0.18);
+            }, index * 70);
+        });
+    }
+
+    helpButton(isOpening) {
+        this.ensureAudioContext();
+
+        if (isOpening) {
+            // Opening: ascending C5 → E5 → Gs4 → C6
+            const notes = [this.scale.C5, this.scale.E5, this.scale.Gs4, this.scale.C6];
+            notes.forEach((freq, index) => {
+                setTimeout(() => {
+                    this.playPad(freq, 0.12, 0.18);
+                }, index * 80);
+            });
+        } else {
+            // Closing: descending C6 → Gs4 → E5 → C5
+            const notes = [this.scale.C6, this.scale.Gs4, this.scale.E5, this.scale.C5];
+            notes.forEach((freq, index) => {
+                setTimeout(() => {
+                    this.playPad(freq, 0.12, 0.18);
+                }, index * 80);
+            });
+        }
+    }
+
+    // ========================================================================
+    // REQUIRED: SELECTION & GESTURE SOUNDS (8 methods)
+    // ========================================================================
+
+    selectParticle() {
+        this.ensureAudioContext();
+
+        this.playAmbientNote(this.scale.E5, 0.08, 0.18);
+    }
+
+    deselectParticle() {
+        this.ensureAudioContext();
+
+        this.playAmbientNote(this.scale.C5, 0.08, 0.15);
+    }
+
+    marqueeSelect(particleCount) {
+        this.ensureAudioContext();
+
+        // Map count to high frequency
+        let freq;
+        if (particleCount <= 10) {
+            freq = this.scale.C5;
+        } else if (particleCount <= 25) {
+            freq = this.scale.E5;
+        } else if (particleCount <= 50) {
+            freq = this.scale.Gs4;
+        } else {
+            freq = this.scale.C6;
+        }
+
+        this.playPad(freq, 0.15, 0.2);
+    }
+
+    hoverParticle() {
+        const now = Date.now();
+
+        if (now - this.lastHoverSound < this.hoverCooldown) {
+            return;
+        }
+        this.lastHoverSound = now;
+
+        this.ensureAudioContext();
+
+        // Bright crystal shimmer
+        this.playAmbientNote(this.scale.C6, 0.05, 0.12);
+    }
+
+    longPressSelect() {
+        this.ensureAudioContext();
+
+        // Building crystal sequence: C5 → E5 → Gs4 → C6
+        const notes = [this.scale.C5, this.scale.E5, this.scale.Gs4, this.scale.C6];
+
+        notes.forEach((freq, index) => {
+            setTimeout(() => {
+                this.playAmbientNote(freq, 0.1, 0.18);
+            }, index * 100);
+        });
+    }
+
+    twoFingerTap() {
+        this.ensureAudioContext();
+
+        // Two crystal taps
+        this.playSoftClick(this.scale.C6, 0.12);
+        setTimeout(() => {
+            this.playSoftClick(this.scale.E5, 0.12);
+        }, 50);
+    }
+
+    threeFingerTap() {
+        this.ensureAudioContext();
+
+        // Three crystal taps
+        this.playSoftClick(this.scale.C6, 0.12);
+        setTimeout(() => {
+            this.playSoftClick(this.scale.E5, 0.12);
+        }, 50);
+        setTimeout(() => {
+            this.playSoftClick(this.scale.C5, 0.12);
+        }, 100);
+    }
+
+    deleteParticles(count = 1) {
+        this.ensureAudioContext();
+
+        // Bright texture based on count
+        let duration;
+        if (count <= 10) {
+            duration = 0.15;
+        } else if (count <= 50) {
+            duration = 0.25;
+        } else {
+            duration = 0.35;
+        }
+
+        this.playTexture('highpass', 3000, duration, 0.15);
     }
 }
 
