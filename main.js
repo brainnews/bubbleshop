@@ -1262,34 +1262,6 @@ function setupControls() {
     currentPickedColor = [initialR, initialG, initialB];
     colorPickerInput.value = rgbToHex(initialR, initialG, initialB);
 
-    // Set up current color click handler
-    currentColor.addEventListener('click', () => {
-        if (isRandomColor) {
-            // Switch to custom color mode
-            isRandomColor = false;
-            currentColor.classList.remove('rainbow-bg');
-            currentColor.style.backgroundColor = `rgb(${currentPickedColor[0]}, ${currentPickedColor[1]}, ${currentPickedColor[2]})`;
-
-            // Play sound (switching to custom mode)
-            if (soundManager) {
-                soundManager.colorPickerToggle(false);
-            }
-
-            // Open the color picker
-            colorPickerInput.click();
-        } else {
-            // Switch back to random color mode
-            isRandomColor = true;
-            currentColor.classList.add('rainbow-bg');
-            currentColor.style.backgroundColor = '';
-
-            // Play sound (switching to random mode)
-            if (soundManager) {
-                soundManager.colorPickerToggle(true);
-            }
-        }
-    });
-
     // Set up color picker change handler
     colorPickerInput.addEventListener('change', (event) => {
         const hexColor = event.target.value;
@@ -1656,13 +1628,21 @@ function setupControls() {
 function toggleColorPicker() {
     const currentColor = document.getElementById('currentColor');
     const colorPickerInput = document.getElementById('colorPickerInput');
-    
+
     if (isRandomColor) {
         // Switch to custom color mode
         isRandomColor = false;
         currentColor.classList.remove('rainbow-bg');
         currentColor.style.backgroundColor = `rgb(${currentPickedColor[0]}, ${currentPickedColor[1]}, ${currentPickedColor[2]})`;
-        
+        currentColor.innerHTML = '<span class="material-symbols-outlined">shuffle</span>';
+        currentColor.setAttribute('aria-label', 'Return to random colors');
+        currentColor.setAttribute('title', 'Return to random colors');
+
+        // Play sound (switching to custom mode)
+        if (soundManager) {
+            soundManager.colorPickerToggle(false);
+        }
+
         // Open the color picker
         colorPickerInput.click();
     } else {
@@ -1670,6 +1650,14 @@ function toggleColorPicker() {
         isRandomColor = true;
         currentColor.classList.add('rainbow-bg');
         currentColor.style.backgroundColor = '';
+        currentColor.innerHTML = '';
+        currentColor.setAttribute('aria-label', 'Choose custom color');
+        currentColor.setAttribute('title', 'Choose custom color');
+
+        // Play sound (switching to random mode)
+        if (soundManager) {
+            soundManager.colorPickerToggle(true);
+        }
     }
 }
 

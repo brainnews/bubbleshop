@@ -266,8 +266,9 @@ button.toolbar-btn:hover {
 }
 
 .current-color .material-symbols-outlined {
-    font-size: 20px;
-    color: #000;
+    font-size: 24px;
+    color: rgba(255, 255, 255, 0.9);
+    pointer-events: none;
 }
 .color-picker-container {
     margin-left: -61px;
